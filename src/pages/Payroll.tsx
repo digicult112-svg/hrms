@@ -1,0 +1,1271 @@
+import { useEffect, useState } from 'react';
+import { supabase } from '../lib/supabase';
+import type { Payroll } from '../types';
+import { useAuth } from '../context/AuthContext';
+import { Download, Plus, X, IndianRupee, Search, Save, Trash2, RotateCcw } from 'lucide-react';
+import jsPDF from 'jspdf';
+import { getBase64FromUrl } from '../utils/export';
+import autoTable from 'jspdf-autotable';
+import { useToast } from '../context/ToastContext';
+import { sendEmail } from '../lib/email';
+
+export default function PayrollPage() {
+    const { user, profile } = useAuth();
+    const [payrolls, setPayrolls] = useState<Payroll[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [showModal, setShowModal] = useState(false);
+    const [showSalaryModal, setShowSalaryModal] = useState(false);
+    const [generating, setGenerating] = useState(false);
+    const [generatingAll, setGeneratingAll] = useState(false);
+    const [updatingSalary, setUpdatingSalary] = useState<string | null>(null);
+    const { success, error: toastError } = useToast();
+
+    // Form state
+    const [selectedEmployee, setSelectedEmployee] = useState('');
+    const [baseSalary, setBaseSalary] = useState('');
+    const [hra, setHra] = useState('');
+    const [allowances, setAllowances] = useState('');
+    const [deductions, setDeductions] = useState('');
+    const [month, setMonth] = useState(new Date().getMonth() + 1);
+    const [year, setYear] = useState(new Date().getFullYear());
+    const [employees, setEmployees] = useState<any[]>([]);
+    const [salarySearch, setSalarySearch] = useState('');
+    const [editedSalaries, setEditedSalaries] = useState<Record<string, string>>({});
+
+    // Auto-populate salary when employee selected
+    useEffect(() => {
+        if (selectedEmployee) {
+            const emp = employees.find(e => e.id === selectedEmployee);
+            if (emp && emp.salary) {
+                setBaseSalary(emp.salary.toString());
+                // Calculate default HRA (e.g., 40% of basic)
+                setHra(Math.round(emp.salary * 0.4).toString());
+            } else {
+                setBaseSalary('');
+                setHra('');
+            }
+        }
+    }, [selectedEmployee, employees]);
+
+    useEffect(() => {
+        fetchPayrolls();
+        if (profile?.role === 'hr') {
+            fetchEmployees();
+        }
+    }, [user, profile]);
+
+    const fetchEmployees = async () => {
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('id, full_name, email, salary')
+                .is('deleted_at', null)
+                .order('full_name');
+
+            if (error) throw error;
+            setEmployees(data || []);
+        } catch (error) {
+            console.error('Error fetching employees:', error);
+        }
+    };
+
+    const fetchPayrolls = async () => {
+        try {
+            let query = supabase.from('payroll').select('*, profiles:user_id(full_name, email)').order('year', { ascending: false }).order('month', { ascending: false });
+
+            if (profile?.role !== 'hr') {
+                query = query.eq('user_id', user?.id);
+            }
+
+            const { data, error } = await query;
+            if (error) throw error;
+            // @ts-ignore
+            setPayrolls(data || []);
+        } catch (error) {
+            console.error('Error fetching payrolls:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGeneratePayroll = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setGenerating(true);
+
+        try {
+            // 0. Update Employee Profile Salary to match this new Base Salary
+            // This ensures 'Manage Salaries' (Current Salary) stays in sync.
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({ salary: parseFloat(baseSalary) })
+                .eq('id', selectedEmployee);
+
+            if (profileError) throw profileError;
+
+            // 1. Delete existing record to ensure clean state (avoids duplicate issues if constraint missing)
+            await supabase
+                .from('payroll')
+                .delete()
+                .eq('user_id', selectedEmployee)
+                .eq('month', month)
+                .eq('year', year);
+
+            // 2. Insert new record
+            const { error } = await supabase
+                .from('payroll')
+                .insert({
+                    user_id: selectedEmployee,
+                    base_salary: parseFloat(baseSalary),
+                    hra: parseFloat(hra) || 0,
+                    allowances: parseFloat(allowances) || 0,
+                    deductions: parseFloat(deductions) || 0,
+                    month: month,
+                    year: year
+                })
+                .select();
+
+            if (error) {
+                console.error('Supabase error:', error);
+                throw error;
+            }
+
+            success('Payroll generated successfully!');
+
+            // Reset form
+            setSelectedEmployee('');
+            setBaseSalary('');
+            setHra('');
+            setAllowances('');
+            setDeductions('');
+            setShowModal(false);
+            fetchPayrolls();
+        } catch (error: any) {
+            console.error('Error generating payroll:', error);
+            toastError(`Error: ${error?.message || 'Unknown error occurred'}`);
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    const handleUpdateSalary = async (userId: string, targetNetSalaryStr: string) => {
+        setUpdatingSalary(userId);
+        try {
+            const targetNetSalary = parseFloat(targetNetSalaryStr);
+            if (isNaN(targetNetSalary)) return;
+
+            const currentMonth = new Date().getMonth() + 1;
+            const currentYear = new Date().getFullYear();
+
+            // 1. Fetch existing payroll or profile to get Base/HRA benchmarks
+            const { data: records, error: fetchError } = await supabase
+                .from('payroll')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('month', currentMonth)
+                .eq('year', currentYear);
+
+            if (fetchError) throw fetchError;
+
+            let payrollRecord = records?.[0];
+
+            // If no payroll exists, we try to fetch profile data 
+            let base = 0;
+            let hra = 0;
+            let deductions = 0;
+
+            if (payrollRecord) {
+                base = payrollRecord.base_salary;
+                hra = payrollRecord.hra;
+                deductions = payrollRecord.deductions || 0;
+            } else {
+                const { data: emp } = await supabase.from('profiles').select('salary').eq('id', userId).single();
+                base = emp?.salary || 0;
+
+                // CRITICAL FIX: If Base Salary is 0 (New Employee), update the PROFILE salary too.
+                // This ensures "Current Salary" column gets populated.
+                if (base === 0) {
+                    base = targetNetSalary;
+                    hra = Math.round(base * 0.4); // Standard HRA
+
+                    // Update Profile
+                    await supabase.from('profiles').update({ salary: base }).eq('id', userId);
+                } else {
+                    hra = Math.round(base * 0.4);
+                }
+            }
+
+            // Calculation: Target = Base + HRA + Allowances - Deductions
+            // => Allowances = Target - Base - HRA + Deductions
+            const newAllowances = Math.max(0, targetNetSalary - base - hra + deductions);
+
+            // Manual Upsert to avoid 'ON CONFLICT' constraint issues if migration wasn't run
+            if (payrollRecord && payrollRecord.id) {
+                // Update existing
+                const { error: updateError } = await supabase
+                    .from('payroll')
+                    .update({
+                        allowances: newAllowances,
+                        // Update HRA/Base just in case they were synced weirdly, but usually we keep them.
+                        // Actually, let's keep Base constant as requested.
+                        base_salary: base,
+                        hra: hra,
+                        deductions: deductions
+                    })
+                    .eq('id', payrollRecord.id);
+
+                if (updateError) throw updateError;
+            } else {
+                // Insert New
+                const { error: insertError } = await supabase
+                    .from('payroll')
+                    .insert({
+                        user_id: userId,
+                        base_salary: base,
+                        hra: hra,
+                        deductions: deductions,
+                        allowances: newAllowances,
+                        month: currentMonth,
+                        year: currentYear
+                    });
+
+                if (insertError) throw insertError;
+            }
+
+            success('Revised salary updated successfully via allowances');
+
+            // Refresh lists
+            await fetchEmployees();
+            await fetchPayrolls();
+
+            setEditedSalaries(prev => {
+                const newState = { ...prev };
+                delete newState[userId];
+                return newState;
+            });
+        } catch (error: any) {
+            console.error('Error updating salary:', error);
+            toastError('Failed to update salary');
+        } finally {
+            setUpdatingSalary(null);
+        }
+    };
+
+    const handleResetSalary = async (userId: string) => {
+        if (!window.confirm('Are you sure you want to completely RESET (Clear) both the Current Base Salary and Revised additions for this employee? This will set values to 0.')) return;
+
+        setUpdatingSalary(userId);
+        try {
+            const currentMonth = new Date().getMonth() + 1;
+            const currentYear = new Date().getFullYear();
+
+            // 1. Reset Profile Salary (Current Salary)
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({ salary: 0 })
+                .eq('id', userId);
+
+            if (profileError) throw profileError;
+
+            // 2. Reset Payroll Record (Revised Salary/Base/HRA)
+            // Find existing payroll
+            const { data: records } = await supabase
+                .from('payroll')
+                .select('id')
+                .eq('user_id', userId)
+                .eq('month', currentMonth)
+                .eq('year', currentYear);
+
+            if (records && records.length > 0) {
+                const { error: payrollError } = await supabase
+                    .from('payroll')
+                    .update({
+                        base_salary: 0,
+                        hra: 0,
+                        allowances: 0,
+                        deductions: 0
+                    })
+                    .eq('id', records[0].id);
+
+                if (payrollError) throw payrollError;
+            }
+
+            // 3. Clear local state
+            setEditedSalaries(prev => {
+                const newState = { ...prev };
+                delete newState[userId];
+                return newState;
+            });
+
+            success('Salary data completely reset to 0');
+            await fetchEmployees(); // Refresh Current Salary column
+            await fetchPayrolls(); // Refresh Payroll table
+
+        } catch (error: any) {
+            console.error('Error resetting salary:', error);
+            toastError('Failed to reset salary');
+        } finally {
+            setUpdatingSalary(null);
+        }
+    };
+
+    const getMonthName = (month: number) => {
+        return new Date(0, month - 1).toLocaleString('default', { month: 'long' });
+    };
+
+    const calculateNetSalary = (p: Payroll) => {
+        return p.base_salary + p.hra + p.allowances - p.deductions;
+    };
+
+    const handleGenerateAll = async () => {
+        // Fetch settings first to confirm valid cycle
+        let startDay = 26;
+        let endDay = 25;
+
+        let enableTax = true;
+        let paidLeavesPerMonth = 1;
+
+        // Optimistically check settings (async check inside to avoid blocking UI render)
+        const { data: settings } = await supabase
+            .from('system_settings')
+            .select('key, value')
+            .in('key', ['payroll_start_day', 'payroll_end_day', 'payroll_tax_enabled', 'payroll_paid_leaves_per_month']);
+
+        if (settings) {
+            const s = settings.find(x => x.key === 'payroll_start_day');
+            const e = settings.find(x => x.key === 'payroll_end_day');
+            const tax = settings.find(x => x.key === 'payroll_tax_enabled');
+            const leaves = settings.find(x => x.key === 'payroll_paid_leaves_per_month');
+
+            if (s) startDay = Number(s.value);
+            if (e) endDay = Number(e.value);
+            if (tax) enableTax = tax.value === 'true';
+            if (leaves) paidLeavesPerMonth = Number(leaves.value);
+        }
+
+        if (!window.confirm(`Are you sure you want to generate payroll for ALL employees for ${month}/${year}? This uses the configured cycle: ${startDay}th of previous month to ${endDay}th of selected month.`)) return;
+
+        setGeneratingAll(true);
+        try {
+            // 0. Pre-check for PENDING requests (Guardrail)
+            const { count: pendingLeaves, error: pendingLeaveError } = await supabase
+                .from('leave_requests')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'pending');
+
+            if (pendingLeaveError) throw pendingLeaveError;
+
+            const { count: pendingAttendance, error: pendingAttError } = await supabase
+                .from('attendance_logs')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'pending');
+
+            if (pendingAttError) throw pendingAttError;
+
+            if ((pendingLeaves || 0) > 0 || (pendingAttendance || 0) > 0) {
+                toastError(`Cannot generate payroll: Found ${pendingLeaves} pending leaves and ${pendingAttendance} pending attendance logs. Please resolve them first.`);
+                return;
+            }
+
+            // 1. Fetch all employees
+            const { data: employees, error: empError } = await supabase
+                .from('profiles')
+                .select('*');
+
+            if (empError) throw empError;
+
+            // 2. Identify Cycle Dates 
+            // Note: Month state is 1-based (1=Jan, 12=Dec).
+            // Cycle Start: startDay of Previous Month
+            // Cycle End: endDay of Current Month
+            const prevMonthDate = new Date(year, month - 2, startDay);
+            const currMonthDate = new Date(year, month - 1, endDay);
+
+            const startStr = prevMonthDate.toISOString().split('T')[0];
+            const endStr = currMonthDate.toISOString().split('T')[0];
+
+            // 3. Fetch holidays in cycle
+            const { data: holidays, error: holError } = await supabase
+                .from('leave_calendar_events')
+                .select('*')
+                .gte('event_date', startStr)
+                .lte('event_date', endStr);
+
+            if (holError) throw holError;
+
+            // 4. Process each employee
+
+            let processedCount = 0;
+            const emailsToSend: any[] = [];
+
+            console.log('Starting generation for', employees?.length, 'employees');
+
+            for (const emp of employees || []) {
+                const baseSalary = emp.salary || 0;
+                if (baseSalary === 0) {
+                    console.log(`Processing 0 salary for ${emp.full_name}`);
+                }
+                // Fetch attendance in cycle
+                const { data: attendance } = await supabase
+                    .from('attendance_logs')
+                    .select('work_date, mode, status')
+                    .eq('user_id', emp.id)
+                    .gte('work_date', startStr)
+                    .lte('work_date', endStr);
+
+                // Fetch approved leaves overlapping cycle
+                const { data: leaves } = await supabase
+                    .from('leave_requests')
+                    .select('start_date, end_date')
+                    .eq('user_id', emp.id)
+                    .eq('status', 'approved')
+                    .or(`start_date.lte.${endStr},end_date.gte.${startStr}`);
+
+                // Calculate Totals within Cycle
+                const totalDaysInCycle = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
+                const holidayCount = holidays?.length || 0;
+
+                // Present Days
+                const presentDays = new Set(attendance?.filter((a: any) =>
+                    a.mode === 'onsite' || ((a.mode === 'wfh' || a.mode === 'remote') && a.status === 'approved')
+                ).map((a: any) => a.work_date)).size;
+
+                // Calculate Approved Leave Days falling in this cycle
+                let totalApprovedLeaveDays = 0;
+                leaves?.forEach((leave: any) => {
+                    const start = new Date(leave.start_date);
+                    const end = new Date(leave.end_date);
+
+                    const effectiveStart = start < prevMonthDate ? prevMonthDate : start;
+                    const effectiveEnd = end > currMonthDate ? currMonthDate : end;
+
+                    if (effectiveStart <= effectiveEnd) {
+                        const diffTime = Math.abs(effectiveEnd.getTime() - effectiveStart.getTime());
+                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                        totalApprovedLeaveDays += diffDays;
+                    }
+                });
+
+                // Rule: Paid Leaves allowed per month (from settings)
+                // Default to 1 if not set or invalid
+                const paidLeaveQuota = paidLeavesPerMonth >= 0 ? paidLeavesPerMonth : 1;
+
+                // Effective paid leaves taken is capped by what was approved, but for deduction purposes:
+                // We count how many approved leave days fall within the quota.
+                const paidLeavesUsed = Math.min(totalApprovedLeaveDays, paidLeaveQuota);
+
+                // Calculate Weekends in Cycle
+                let weekends = 0;
+                let loopDate = new Date(prevMonthDate);
+                // Create a temporary date object to iterate so we don't modify prevMonthDate
+                const iterDate = new Date(loopDate);
+
+                while (iterDate <= currMonthDate) {
+                    const day = iterDate.getDay();
+                    if (day === 0 || day === 6) weekends++; // Sun=0, Sat=6
+                    iterDate.setDate(iterDate.getDate() + 1);
+                }
+
+                // Total Paid Days Calculation
+                // Paid Days = Present + Holidays + Weekends + Approved Leaves (up to quota)
+                // Any approved leave BEYOND quota is effectively unpaid (LOP).
+                let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
+
+                if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
+
+                // LOP Calculation
+                // LOP Days = Total Days in Cycle - Paid Days
+                const lopDays = Math.max(0, totalDaysInCycle - paidDays);
+
+                // Deduction Logic: Salary is cut off by 30/salary amount (meaning 1/30th of salary per day)
+                // Deduction Logic: Salary is cut off by 30/salary amount (meaning 1/30th of salary per day)
+                const perDaySalary = Number(baseSalary) / 30;
+
+                // LOP Deduction
+                let deductions = Math.round(lopDays * perDaySalary);
+
+                // Tax Calculation (Mock logic: 10% if > 50k, 20% if > 1L, etc. - simplified)
+                // Only if enabled in settings. APPLY TO ALL (including HR).
+                let taxAmount = 0;
+                if (enableTax) {
+                    // Simple slab for demo: 0-25k: 0%, 25k-50k: 5%, 50k-1L: 10%, >1L: 15%
+                    // This is monthly tax
+                    // This is monthly tax
+                    const salaryNum = Number(baseSalary);
+                    if (salaryNum > 100000) taxAmount = salaryNum * 0.15;
+                    else if (salaryNum > 50000) taxAmount = salaryNum * 0.10;
+                    else if (salaryNum > 25000) taxAmount = salaryNum * 0.05;
+
+                    deductions += taxAmount;
+                }
+
+                // Metadata for Payslip Details
+                const metadata = {
+                    lop_days: lopDays,
+                    lop_amount: Math.round(lopDays * perDaySalary),
+                    tax_amount: taxAmount
+                };
+
+                // 1. Delete existing for this month/year cycle
+                await supabase
+                    .from('payroll')
+                    .delete()
+                    .eq('user_id', emp.id)
+                    .eq('month', month)
+                    .eq('year', year);
+
+                // 2. Insert new payroll record
+                const { error: insertError } = await supabase.from('payroll').insert({
+                    user_id: emp.id,
+                    base_salary: baseSalary,
+                    hra: 0,
+                    allowances: 0,
+                    deductions: deductions,
+                    month,
+                    year,
+                    metadata // Store breakdown
+                });
+
+                if (insertError) {
+                    console.error('Error inserting payroll for', emp.full_name, insertError);
+                }
+
+                if (!insertError) {
+                    processedCount++;
+                    // Queue for email
+                    if (emp.email) {
+                        emailsToSend.push({
+                            to: emp.email,
+                            name: emp.full_name,
+                            monthName: getMonthName(month),
+                            year: year,
+                            base: baseSalary,
+                            hra: 0,
+                            allowances: 0,
+                            deductions: deductions,
+                            net: baseSalary + 0 + 0 - deductions,
+                            details: metadata
+                        });
+                    }
+                }
+            }
+
+            if (processedCount === 0) {
+                toastError(`No eligible employees found for payroll generation.`);
+            } else {
+                success(`Successfully generated payroll for ${processedCount} employees.`);
+            }
+
+            // Send Emails
+            if (emailsToSend.length > 0) {
+                success(`Sending ${emailsToSend.length} payslip emails...`);
+
+                // Send in parallel (with some caution, but for <100 employees Promise.all is usually fine)
+                await Promise.all(emailsToSend.map(async (data) => {
+                    const { to, name, monthName, year: pYear, base, hra, allowances, deductions, net, details } = data;
+
+                    const html = `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                            <h2 style="color: #2563eb;">Payslip for ${monthName} ${pYear}</h2>
+                            <p>Hi ${name},</p>
+                            <p>Your payslip for <strong>${monthName} ${pYear}</strong> has been generated.</p>
+                            
+                            <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #ddd;">
+                                <tr style="background-color: #f8fafc;">
+                                    <th style="text-align: left; padding: 12px; border-bottom: 1px solid #ddd;">Description</th>
+                                    <th style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">Amount</th>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px; border-bottom: 1px solid #ddd;">Base Salary</td>
+                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">₹${base.toLocaleString('en-IN')}</td>
+                                </tr>
+                                ${hra > 0 ? `
+                                <tr>
+                                    <td style="padding: 12px; border-bottom: 1px solid #ddd;">HRA</td>
+                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">₹${hra.toLocaleString('en-IN')}</td>
+                                </tr>` : ''}
+                                ${allowances > 0 ? `
+                                <tr>
+                                    <td style="padding: 12px; border-bottom: 1px solid #ddd;">Allowances</td>
+                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">₹${allowances.toLocaleString('en-IN')}</td>
+                                </tr>` : ''}
+                                <tr>
+                                    <td style="padding: 12px; border-bottom: 1px solid #ddd; color: #dc2626;">Deductions</td>
+                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd; color: #dc2626;">-₹${deductions.toLocaleString('en-IN')}</td>
+                                </tr>
+                                <tr style="background-color: #eff6ff; font-weight: bold;">
+                                    <td style="padding: 12px;">Net Salary</td>
+                                    <td style="text-align: right; padding: 12px; color: #2563eb;">₹${net.toLocaleString('en-IN')}</td>
+                                </tr>
+                            </table>
+
+                             ${details && details.lop_days > 0 ? `
+                                <p style="margin-top: 20px; font-size: 14px; color: #666;">
+                                    * Includes ${details.lop_days} days Loss of Pay (₹${details.lop_amount})
+                                </p>
+                            ` : ''}
+
+                            <p style="margin-top: 30px; font-size: 14px; color: #666;">
+                                Regards,<br>
+                                HR Team
+                            </p>
+                        </div>
+                    `;
+
+                    await sendEmail({
+                        to,
+                        subject: `Payslip: ${monthName} ${pYear}`,
+                        html
+                    });
+                }));
+
+                success('All payslips sent successfully.');
+            }
+
+            fetchPayrolls();
+
+        } catch (error: any) {
+            console.error('Error generating all payrolls:', error);
+            toastError(`Error: ${error.message}`);
+        } finally {
+            setGeneratingAll(false);
+        }
+    };
+
+    const formatCurrency = (amount: number) => {
+        return new Intl.NumberFormat('en-IN', {
+            style: 'currency',
+            currency: 'INR',
+            maximumFractionDigits: 0
+        }).format(amount);
+    };
+
+    const handleDownloadPayslip = async (p: Payroll & { metadata?: any }) => {
+        try {
+            // 1. Fetch ALL settings needed (Logo + Cycle + Tax)
+            // 1. Fetch ALL settings needed (Logo + Cycle + Tax)
+            let logoUrl = '';
+            let companyAddress = '123 Innovation Drive\nHyderabad, India 500081\ncontact@hrms.com';
+            let footerText = 'This payslip is system generated and does not require a physical signature.';
+            let showId = true;
+            let showTax = true;
+
+            // Cycle Defaults
+            let startDay = 26;
+            let endDay = 25;
+            let paidLeavesQuota = 1;
+            let taxEnabled = true;
+
+            const { data: settings } = await supabase
+                .from('system_settings')
+                .select('key, value')
+                .in('key', [
+                    'company_logo', 'company_address', 'payslip_footer', 'payslip_show_id', 'payslip_show_tax',
+                    'payroll_start_day', 'payroll_end_day', 'payroll_paid_leaves_per_month', 'payroll_tax_enabled'
+                ]);
+
+            if (settings) {
+                // UI Settings
+                const logo = settings.find(s => s.key === 'company_logo');
+                const address = settings.find(s => s.key === 'company_address');
+                const footer = settings.find(s => s.key === 'payslip_footer');
+                const idSetting = settings.find(s => s.key === 'payslip_show_id');
+                const taxSetting = settings.find(s => s.key === 'payslip_show_tax');
+
+                if (logo) logoUrl = logo.value;
+                if (address) companyAddress = address.value;
+                if (footer) footerText = footer.value;
+
+                if (idSetting) showId = idSetting.value === 'true';
+                if (taxSetting) showTax = taxSetting.value === 'true';
+
+                // Cycle Settings
+                const s = settings.find(x => x.key === 'payroll_start_day');
+                const e = settings.find(x => x.key === 'payroll_end_day');
+                const l = settings.find(x => x.key === 'payroll_paid_leaves_per_month');
+                const t = settings.find(x => x.key === 'payroll_tax_enabled');
+                if (s) startDay = Number(s.value);
+                if (e) endDay = Number(e.value);
+                if (l) paidLeavesQuota = Number(l.value);
+                if (t) taxEnabled = t.value === 'true';
+            }
+
+            // 2. Re-Calculate Breakdown Context (Dynamic Explanation)
+            // We reconstruct the context to explain "Why is deduction X?"
+
+            // Dates
+            const prevMonthDate = new Date(p.year, p.month - 2, startDay); // Month is 1-based in DB
+            const currMonthDate = new Date(p.year, p.month - 1, endDay);
+            const startStr = prevMonthDate.toISOString().split('T')[0];
+            const endStr = currMonthDate.toISOString().split('T')[0];
+            const totalDaysInCycle = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
+
+            // Fetch Holidays
+            const { data: holidays } = await supabase.from('leave_calendar_events')
+                .select('*').gte('event_date', startStr).lte('event_date', endStr);
+            const holidayCount = holidays?.length || 0;
+
+            // Fetch Attendance
+            const { data: attendance } = await supabase.from('attendance_logs')
+                .select('work_date, mode, status')
+                .eq('user_id', p.user_id)
+                .gte('work_date', startStr).lte('work_date', endStr);
+
+            const presentDays = new Set(attendance?.filter((a: any) =>
+                a.mode === 'onsite' || ((a.mode === 'wfh' || a.mode === 'remote') && a.status === 'approved')
+            ).map((a: any) => a.work_date)).size;
+
+            // Fetch Leaves
+            const { data: leaves } = await supabase.from('leave_requests')
+                .select('start_date, end_date')
+                .eq('user_id', p.user_id).eq('status', 'approved')
+                .or(`start_date.lte.${endStr},end_date.gte.${startStr}`);
+
+            let totalApprovedLeaveDays = 0;
+            leaves?.forEach((leave: any) => {
+                const s = new Date(leave.start_date);
+                const e = new Date(leave.end_date);
+                const effS = s < prevMonthDate ? prevMonthDate : s;
+                const effE = e > currMonthDate ? currMonthDate : e;
+                if (effS <= effE) {
+                    const diffDays = Math.ceil((effE.getTime() - effS.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+                    totalApprovedLeaveDays += diffDays;
+                }
+            });
+
+            // Calculate Weekends
+            let weekends = 0;
+            let iterDate = new Date(prevMonthDate);
+            while (iterDate <= currMonthDate) {
+                const d = iterDate.getDay();
+                if (d === 0 || d === 6) weekends++;
+                iterDate.setDate(iterDate.getDate() + 1);
+            }
+
+            // Calculations
+            const paidLeavesUsed = Math.min(totalApprovedLeaveDays, paidLeavesQuota);
+            let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
+            if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
+
+            const lopDays = Math.max(0, totalDaysInCycle - paidDays);
+            const perDaySalary = p.base_salary / 30; // Standard 30 days calculation
+            const calculatedLopAmount = Math.round(lopDays * perDaySalary);
+
+            let calculatedTax = 0;
+            if (taxEnabled) {
+                // Same slab as generate
+                if (p.base_salary > 100000) calculatedTax = p.base_salary * 0.15;
+                else if (p.base_salary > 50000) calculatedTax = p.base_salary * 0.10;
+                else if (p.base_salary > 25000) calculatedTax = p.base_salary * 0.05;
+            }
+
+            // PDF Generation
+            const doc = new jsPDF();
+
+            // Helper for PDF currency
+            const formatForPDF = (amount: number) => {
+                return 'Rs. ' + amount.toLocaleString('en-IN', {
+                    maximumFractionDigits: 0,
+                    minimumFractionDigits: 0
+                });
+            };
+
+            // 1. Header
+            doc.setFontSize(22);
+            doc.setTextColor(37, 99, 235); // Blue
+
+
+            // Add Logo if available
+            if (logoUrl) {
+                try {
+                    const logoBase64 = await getBase64FromUrl(logoUrl);
+                    // Add image at top-left, scaled. Passing 'undefined' as format allows jsPDF to infer from Data URI
+                    doc.addImage(logoBase64, 'PNG', 20, 10, 20, 20);
+
+                    // Shift text down or right depending on layout preferences. 
+                    // Let's shift "HRMS Corp." to the right of logo
+                    // doc.text("HRMS Corp.", 45, 20);
+                } catch (err) {
+                    console.error('Failed to load logo image for PDF', err);
+                    // Fallback to text only
+                    doc.text("HRMS Corp.", 20, 20);
+                }
+            } else {
+                doc.text("HRMS Corp.", 20, 20);
+            }
+
+
+            doc.setFontSize(10);
+            doc.setTextColor(100, 100, 100);
+
+            // Render Address (Mult-line support)
+            // Start address significantly below the logo (Logo is 10->30, so start at 40)
+            const addressLines = companyAddress.split('\n');
+            let yPos = 40;
+            addressLines.forEach(line => {
+                doc.text(line, 20, yPos);
+                yPos += 5;
+            });
+
+
+
+            // Payslip Details (Right side)
+            doc.setFontSize(16);
+            doc.setTextColor(0, 0, 0);
+            doc.text("PAYSLIP", 140, 20);
+
+            doc.setFontSize(10);
+            doc.setTextColor(100, 100, 100);
+            doc.text(`For: ${getMonthName(p.month)} ${p.year}`, 140, 26);
+            doc.text(`Generated: ${new Date().toLocaleDateString()}`, 140, 31);
+            if (showId) {
+                doc.text(`ID: ${p.id.slice(0, 8).toUpperCase()}`, 140, 36);
+            }
+
+            // Divider - Move down to accommodate potentially long address
+            const dividerY = Math.max(yPos + 5, 50); // Ensure minimal spacing
+            doc.setDrawColor(200, 200, 200);
+            doc.setLineWidth(0.5);
+            doc.line(20, dividerY, 190, dividerY);
+
+            // Adjust subsequent Y positions based on dynamic divider
+            const employeeDetailsY = dividerY + 10;
+
+            // 2. Employee Info
+            doc.setFontSize(12);
+            doc.setTextColor(0, 0, 0);
+            doc.text("Employee Details", 20, employeeDetailsY);
+
+            doc.setFontSize(10);
+            doc.setTextColor(80, 80, 80);
+            doc.text(`Name: ${p.profiles?.full_name || 'N/A'}`, 20, employeeDetailsY + 7);
+            doc.text(`Email: ${p.profiles?.email || 'N/A'}`, 20, employeeDetailsY + 13);
+
+            // 3. Earnings Table
+            autoTable(doc, {
+                startY: employeeDetailsY + 25,
+                head: [['Earnings', 'Amount']],
+                body: [
+                    ['Base Salary', formatForPDF(p.base_salary)],
+                    ['HRA', formatForPDF(p.hra)],
+                    ['Allowances', formatForPDF(p.allowances)],
+                ],
+                theme: 'grid',
+                headStyles: { fillColor: [22, 163, 74], textColor: 255 }, // Green header
+                styles: { fontSize: 10, cellPadding: 3 },
+                columnStyles: {
+                    1: { halign: 'right' }
+                }
+            });
+
+            // 4. Deductions Table
+            // @ts-ignore
+            const finalY1 = (doc as any).lastAutoTable.finalY + 10;
+
+            const deductionRows = [];
+
+            // We use the RE-CALCULATED breakdown to explain the Total Deduction
+            // We try to match `p.deductions` (the stored truth)
+
+            // Add LOP
+            if (lopDays > 0) {
+                deductionRows.push([`Loss of Pay (${lopDays} days absent)`, formatForPDF(calculatedLopAmount)]);
+            }
+
+            // Add Tax
+            if (calculatedTax > 0 && showTax) {
+                deductionRows.push([`Income Tax`, formatForPDF(calculatedTax)]);
+            }
+
+            // Check if there is discrepancy (e.g. manual edits or old logic)
+            const explainedAmount = calculatedLopAmount + calculatedTax;
+            const remainingDiff = p.deductions - explainedAmount;
+
+            if (Math.abs(remainingDiff) > 10) { // Tolerance 10rs
+                deductionRows.push([`Other / Adjustments`, formatForPDF(remainingDiff)]);
+            } else if (p.deductions > 0 && deductionRows.length === 0) {
+                // Fallback if our calculation yielded 0 but record has deduction
+                deductionRows.push(['Total Deductions', formatForPDF(p.deductions)]);
+            }
+
+            // If absolutely nothing
+            if (deductionRows.length === 0) {
+                deductionRows.push(['No Deductions', formatForPDF(0)]);
+            }
+
+
+            autoTable(doc, {
+                startY: finalY1,
+                head: [['Deductions', 'Amount']],
+                body: deductionRows,
+                theme: 'grid',
+                headStyles: { fillColor: [220, 38, 38], textColor: 255 }, // Red header
+                styles: { fontSize: 10, cellPadding: 3 },
+                columnStyles: {
+                    1: { halign: 'right' }
+                }
+            });
+
+            // 5. Net Profit / Summary
+            // @ts-ignore
+            const finalY = (doc as any).lastAutoTable.finalY + 15;
+
+            // Draw a light background box for net salary
+            doc.setFillColor(240, 249, 255); // Light blue
+            doc.rect(120, finalY - 5, 70, 25, 'F');
+
+            doc.setFontSize(12);
+            doc.setTextColor(37, 99, 235); // Blue
+            doc.setFont("helvetica", "bold");
+            doc.text("Net Salary", 125, finalY + 5);
+
+            doc.setFontSize(16);
+            doc.setTextColor(0, 0, 0);
+            doc.text(formatForPDF(calculateNetSalary(p)), 125, finalY + 15);
+
+            // Footer
+            doc.setFontSize(8);
+            doc.setTextColor(150, 150, 150);
+            doc.setFont("helvetica", "normal");
+
+            // Handle multi-line footer if it's long
+            const splitFooter = doc.splitTextToSize(footerText, 170);
+            doc.text(splitFooter, 105, 280, { align: "center" });
+
+            // Save
+            doc.save(`Payslip_${p.profiles?.full_name?.replace(/\s+/g, '_') || 'Employee'}_${getMonthName(p.month)}_${p.year}.pdf`);
+        } catch (error) {
+            console.error('Error generating PDF:', error);
+            alert('Failed to generate PDF. Please check console for details.');
+        }
+    };
+
+    const handleDeletePayroll = async (id: string) => {
+        if (!window.confirm('Are you sure you want to delete this payroll record?')) return;
+
+        try {
+            const { error } = await supabase
+                .from('payroll')
+                .delete()
+                .eq('id', id);
+
+            if (error) throw error;
+            success('Payroll record deleted successfully');
+            setPayrolls(payrolls.filter(p => p.id !== id));
+        } catch (error: any) {
+            console.error('Error deleting payroll:', error);
+            toastError('Failed to delete payroll record');
+        }
+    };
+
+    return (
+        <div className="max-w-6xl mx-auto">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payroll</h1>
+                {profile?.role === 'hr' && (
+                    <div className="flex space-x-2">
+                        <button
+                            onClick={() => setShowSalaryModal(true)}
+                            className="flex items-center px-4 py-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors shadow-sm"
+                        >
+                            <IndianRupee className="w-4 h-4 mr-2" />
+                            Manage Salaries
+                        </button>
+                        <button
+                            onClick={handleGenerateAll}
+                            disabled={generatingAll}
+                            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            {generatingAll ? 'Processing...' : 'Generate All'}
+                        </button>
+                        <button
+                            onClick={() => setShowModal(true)}
+                            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                        >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Generate Single
+                        </button>
+                    </div>
+                )}
+            </div>
+
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 overflow-hidden transition-colors">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-sm border-b border-gray-200 dark:border-gray-700">
+                            <tr>
+                                <th className="px-6 py-3 font-medium">Employee</th>
+                                <th className="px-6 py-3 font-medium">Month/Year</th>
+                                <th className="px-6 py-3 font-medium">Base Salary</th>
+                                <th className="px-6 py-3 font-medium">Allowances</th>
+                                <th className="px-6 py-3 font-medium">Net Salary</th>
+                                <th className="px-6 py-3 font-medium">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">Loading...</td>
+                                </tr>
+                            ) : payrolls.length === 0 ? (
+                                <tr>
+                                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">No payroll records found</td>
+                                </tr>
+                            ) : (
+                                payrolls.map((p) => (
+                                    <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                                        <td className="px-6 py-4">
+                                            <div className="text-sm font-medium text-gray-900 dark:text-white">{p.profiles?.full_name || 'Unknown'}</div>
+                                            <div className="text-xs text-gray-500 dark:text-gray-400">{p.profiles?.email}</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-gray-900 dark:text-gray-100 font-medium">
+                                            {getMonthName(p.month)} {p.year}
+                                        </td>
+                                        <td className="px-6 py-4 text-gray-700 dark:text-gray-300">{formatCurrency(p.base_salary)}</td>
+                                        <td className="px-6 py-4 text-green-600 dark:text-green-400">+{formatCurrency(p.allowances)}</td>
+                                        <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
+                                            {formatCurrency(calculateNetSalary(p))}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <button
+                                                onClick={() => handleDownloadPayslip(p)}
+                                                className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                                title="Download Slip"
+                                            >
+                                                <Download className="w-5 h-5" />
+                                            </button>
+                                            {profile?.role === 'hr' && (
+                                                <button
+                                                    onClick={() => handleDeletePayroll(p.id)}
+                                                    className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 ml-3"
+                                                    title="Delete Record"
+                                                >
+                                                    <Trash2 className="w-5 h-5" />
+                                                </button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {/* Manage Salaries Modal */}
+            {showSalaryModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col border border-gray-200 dark:border-gray-800 transition-colors">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-800">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Manage Base Salaries</h2>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Set default base salaries for all employees for automated payroll.</p>
+                            </div>
+                            <button onClick={() => setShowSalaryModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50">
+                            <div className="relative">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                <input
+                                    type="text"
+                                    placeholder="Search employees..."
+                                    value={salarySearch}
+                                    onChange={(e) => setSalarySearch(e.target.value)}
+                                    className="w-full pl-10 pr-4 py-2 rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-purple-500 transition-colors dark:text-white"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-0">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wider sticky top-0 z-10">
+                                    <tr>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Employee</th>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Role</th>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Current Salary (₹)</th>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Revised Salary (₹)</th>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700 w-48">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-200 dark:divide-gray-800">
+                                    {employees
+                                        .filter(emp => emp.full_name?.toLowerCase().includes(salarySearch.toLowerCase()) || emp.email?.toLowerCase().includes(salarySearch.toLowerCase()))
+                                        .map((emp) => (
+                                            <tr key={emp.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                                <td className="px-6 py-4">
+                                                    <div className="font-medium text-gray-900 dark:text-white">{emp.full_name}</div>
+                                                    <div className="text-xs text-gray-500 dark:text-gray-400">{emp.email}</div>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 capitalize">
+                                                    {emp.role || 'Employee'}
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100 font-medium">
+                                                    {emp.salary ? formatCurrency(emp.salary) : '-'}
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <input
+                                                        type="number"
+                                                        value={editedSalaries[emp.id] || ''}
+                                                        onChange={(e) => setEditedSalaries(prev => ({ ...prev, [emp.id]: e.target.value }))}
+                                                        className="block w-full rounded-md border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm py-1.5 px-3 dark:text-white"
+                                                        placeholder="Enter revised"
+                                                    />
+                                                </td>
+                                                <td className="px-6 py-4">
+                                                    <button
+                                                        onClick={() => {
+                                                            const val = editedSalaries[emp.id];
+                                                            if (val) handleUpdateSalary(emp.id, val);
+                                                        }}
+                                                        disabled={updatingSalary === emp.id}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded-lg text-xs font-bold hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors disabled:opacity-50"
+                                                    >
+                                                        <Save className="w-3.5 h-3.5" />
+                                                        {updatingSalary === emp.id ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleResetSalary(emp.id)}
+                                                        disabled={updatingSalary === emp.id}
+                                                        className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded-lg text-xs font-bold hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 ml-2"
+                                                        title="Reset to Base Salary"
+                                                    >
+                                                        <RotateCcw className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-800 transition-colors">
+                        <div className="flex justify-between items-center p-6 border-b border-gray-200 dark:border-gray-800">
+                            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Generate Payroll</h2>
+                            <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <form onSubmit={handleGeneratePayroll} className="p-6 space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Employee</label>
+                                <select
+                                    required
+                                    value={selectedEmployee}
+                                    onChange={(e) => setSelectedEmployee(e.target.value)}
+                                    className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                >
+                                    <option value="">Select an employee</option>
+                                    {employees.map((emp) => (
+                                        <option key={emp.id} value={emp.id}>
+                                            {emp.full_name} ({emp.email})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Month</label>
+                                    <select
+                                        required
+                                        value={month}
+                                        onChange={(e) => setMonth(parseInt(e.target.value))}
+                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                    >
+                                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                                            <option key={m} value={m}>{getMonthName(m)}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Year</label>
+                                    <input
+                                        type="number"
+                                        required
+                                        value={year}
+                                        onChange={(e) => setYear(parseInt(e.target.value))}
+                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Base Salary</label>
+                                <input
+                                    type="number"
+                                    required
+                                    step="0.01"
+                                    value={baseSalary}
+                                    onChange={(e) => setBaseSalary(e.target.value)}
+                                    className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                    placeholder="50000"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">HRA</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={hra}
+                                        onChange={(e) => setHra(e.target.value)}
+                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                        placeholder="10000"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Allowances</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={allowances}
+                                        onChange={(e) => setAllowances(e.target.value)}
+                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                        placeholder="5000"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deductions</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        value={deductions}
+                                        onChange={(e) => setDeductions(e.target.value)}
+                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
+                                        placeholder="2000"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end space-x-3 pt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowModal(false)}
+                                    className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={generating}
+                                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                                >
+                                    {generating ? 'Generating...' : 'Generate Payroll'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
