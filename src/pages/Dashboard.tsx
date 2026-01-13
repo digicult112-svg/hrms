@@ -78,19 +78,19 @@ export default function Dashboard() {
                 },
                 async (payload) => {
                     console.log('Received attendance log:', payload);
-                    const newLog = payload.new;
+                    // const newLog = payload.new;
 
                     // Allow HR to see their own notifications for testing purposes
                     // if (newLog.user_id === profile?.id) return;
 
                     // Fetch user name
-                    const { data: userProfile } = await supabase
-                        .from('profiles')
-                        .select('full_name')
-                        .eq('id', newLog.user_id)
-                        .single();
+                    // const { data: userProfile } = await supabase
+                    //     .from('profiles')
+                    //     .select('full_name')
+                    //     .eq('id', newLog.user_id)
+                    //     .single();
 
-                    const name = userProfile?.full_name || 'An employee';
+                    // const name = userProfile?.full_name || 'An employee';
                     // const title = 'Clock In Alert';
                     // const body = `${name} has just clocked in.`;
 

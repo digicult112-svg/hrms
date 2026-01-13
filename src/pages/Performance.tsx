@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import type { PerformanceSummary, Candidate, LeaveRequest } from '../types';
+import type { PerformanceSummary } from '../types';
 import { useAuth } from '../context/AuthContext';
 import {
     BarChart,
@@ -14,19 +14,17 @@ import {
     PieChart,
     Pie,
     Cell,
-    LineChart,
-    Line,
     AreaChart,
     Area
 } from 'recharts';
-import { TrendingUp, Users, Calendar, Award } from 'lucide-react';
+import { TrendingUp, Calendar, Award } from 'lucide-react';
 
 export default function PerformancePage() {
     const { user, profile } = useAuth();
     const [performanceData, setPerformanceData] = useState<PerformanceSummary[]>([]);
     const [leaveData, setLeaveData] = useState<{ name: string; value: number }[]>([]);
     const [funnelData, setFunnelData] = useState<{ name: string; value: number }[]>([]);
-    const [loading, setLoading] = useState(true);
+    // const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         fetchAllData();
@@ -34,7 +32,7 @@ export default function PerformancePage() {
 
     const fetchAllData = async () => {
         try {
-            setLoading(true);
+            // setLoading(true);
 
             // 1. Fetch Performance Summary (Attendance Trends)
             let perfQuery = supabase
@@ -85,7 +83,7 @@ export default function PerformancePage() {
         } catch (error) {
             console.error('Error fetching analytics:', error);
         } finally {
-            setLoading(false);
+            // setLoading(false);
         }
     };
 
@@ -201,7 +199,7 @@ export default function PerformancePage() {
                                     paddingAngle={5}
                                     dataKey="value"
                                 >
-                                    {leaveData.map((entry, index) => (
+                                    {leaveData.map((_, index) => (
                                         <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                     ))}
                                 </Pie>
@@ -231,7 +229,7 @@ export default function PerformancePage() {
                                         itemStyle={{ color: '#F3F4F6' }}
                                     />
                                     <Bar dataKey="value" fill="#8884d8" radius={[0, 4, 4, 0]}>
-                                        {funnelData.map((entry, index) => (
+                                        {funnelData.map((_, index) => (
                                             <Cell key={`cell-${index}`} fill={COLORS[3 - (index % 4)]} /> // Gradient-ish effect
                                         ))}
                                     </Bar>

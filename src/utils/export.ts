@@ -92,7 +92,7 @@ export const getBase64FromUrl = (url: string): Promise<string> => {
                 reject(new Error('Canvas context failed'));
             }
         };
-        img.onerror = (e) => {
+        img.onerror = () => {
             reject(new Error(`Failed to load image: ${url}`));
         };
     });
