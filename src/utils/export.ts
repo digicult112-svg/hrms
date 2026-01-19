@@ -97,3 +97,36 @@ export const getBase64FromUrl = (url: string): Promise<string> => {
         };
     });
 };
+
+export const getImageDetails = (url: string): Promise<{ dataUrl: string; width: number; height: number; ratio: number }> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.setAttribute('crossOrigin', 'anonymous');
+        img.src = url;
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+                ctx.drawImage(img, 0, 0);
+                try {
+                    const dataUrl = canvas.toDataURL('image/png');
+                    resolve({
+                        dataUrl,
+                        width: img.width,
+                        height: img.height,
+                        ratio: img.width / img.height
+                    });
+                } catch (e) {
+                    reject(e);
+                }
+            } else {
+                reject(new Error('Canvas context failed'));
+            }
+        };
+        img.onerror = () => {
+            reject(new Error(`Failed to load image: ${url}`));
+        };
+    });
+};

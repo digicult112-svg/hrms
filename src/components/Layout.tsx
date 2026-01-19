@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
-import { LogOut, LayoutDashboard, Users, Clock, Calendar, DollarSign, Briefcase, FileText, Shield, Menu, X, LifeBuoy } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Clock, Calendar, DollarSign, Briefcase, FileText, Shield, Menu, X, LifeBuoy, MessageSquare, ShieldAlert } from 'lucide-react';
 import { Mail } from 'lucide-react';
 import { CommandPalette } from './CommandPalette';
 import NotificationCenter from './NotificationCenter';
@@ -70,77 +70,113 @@ export default function Layout() {
                 </div>
 
                 <nav className="p-4 space-y-1">
-                    <Link
-                        to="/"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <LayoutDashboard className="w-5 h-5 mr-3" />
-                        Dashboard
-                    </Link>
+                    {/* Admin-only navigation */}
+                    {profile?.role === 'admin' ? (
+                        <>
+                            <Link
+                                to="/feedback"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/feedback')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <MessageSquare className="w-5 h-5 mr-3" />
+                                Feedback
+                            </Link>
 
-                    <Link
-                        to="/attendance"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/attendance')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <Clock className="w-5 h-5 mr-3" />
-                        Attendance
-                    </Link>
+                            <Link
+                                to="/admin-dashboard"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/admin-dashboard')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <ShieldAlert className="w-5 h-5 mr-3" />
+                                Admin Dashboard
+                            </Link>
+                        </>
+                    ) : (
+                        <>
+                            {/* Regular user navigation */}
+                            <Link
+                                to="/"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <LayoutDashboard className="w-5 h-5 mr-3" />
+                                Dashboard
+                            </Link>
 
-                    <Link
-                        to="/leave"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/leave')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <Calendar className="w-5 h-5 mr-3" />
-                        Leave
-                    </Link>
+                            <Link
+                                to="/attendance"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/attendance')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <Clock className="w-5 h-5 mr-3" />
+                                Attendance
+                            </Link>
 
-                    <Link
-                        to="/payroll"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/payroll')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <DollarSign className="w-5 h-5 mr-3" />
-                        Payroll
-                    </Link>
+                            <Link
+                                to="/leave"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/leave')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <Calendar className="w-5 h-5 mr-3" />
+                                Leave
+                            </Link>
 
-                    <Link
-                        to="/jobs"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/jobs')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <Briefcase className="w-5 h-5 mr-3" />
-                        Job Openings
-                    </Link>
+                            <Link
+                                to="/payroll"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/payroll')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <DollarSign className="w-5 h-5 mr-3" />
+                                Payroll
+                            </Link>
 
+                            <Link
+                                to="/jobs"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/jobs')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <Briefcase className="w-5 h-5 mr-3" />
+                                Job Openings
+                            </Link>
 
+                            <Link
+                                to="/helpdesk"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/helpdesk')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <LifeBuoy className="w-5 h-5 mr-3" />
+                                Helpdesk
+                            </Link>
 
-                    <Link
-                        to="/helpdesk"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/helpdesk')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <LifeBuoy className="w-5 h-5 mr-3" />
-                        Helpdesk
-                    </Link>
+                            <Link
+                                to="/profile"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/profile')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <Users className="w-5 h-5 mr-3" />
+                                My Profile
+                            </Link>
 
-                    <Link
-                        to="/profile"
-                        className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/profile')
-                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
-                            : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
-                    >
-                        <Users className="w-5 h-5 mr-3" />
-                        My Profile
-                    </Link>
+                            <Link
+                                to="/feedback"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/feedback')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <MessageSquare className="w-5 h-5 mr-3" />
+                                Feedback
+                            </Link>
+                        </>
+                    )}
 
                     {profile?.role === 'hr' && (
                         <>

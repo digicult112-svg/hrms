@@ -9,7 +9,7 @@ export default function Register() {
         email: string;
         password: string;
         fullName: string;
-        role: 'hr' | 'employee';
+        role: 'hr' | 'employee' | 'admin';
     }>({
         email: '',
         password: '',
@@ -135,11 +135,12 @@ export default function Register() {
                         </label>
                         <select
                             value={formData.role}
-                            onChange={(e) => setFormData({ ...formData, role: e.target.value as 'hr' | 'employee' })}
+                            onChange={(e) => setFormData({ ...formData, role: e.target.value as 'hr' | 'employee' | 'admin' })}
                             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
                         >
                             <option value="hr">HR</option>
                             <option value="employee">Employee</option>
+                            <option value="admin">Admin</option>
                         </select>
                     </div>
 

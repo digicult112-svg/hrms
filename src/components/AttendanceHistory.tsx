@@ -81,13 +81,13 @@ export default function AttendanceHistory({
     };
 
     return (
-        <div className="bg-[#0B1120] rounded-[2rem] p-6 shadow-2xl overflow-hidden flex flex-col h-[600px] border border-gray-800">
+        <div className="bg-white dark:bg-[#0B1120] rounded-[2rem] p-6 shadow-xl dark:shadow-2xl overflow-hidden flex flex-col h-[600px] border border-gray-100 dark:border-gray-800 transition-colors duration-200">
             {/* Header */}
             <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 mb-8 shrink-0">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                     <div className="flex items-center gap-2">
                         <div className="w-1.5 h-6 bg-purple-500 rounded-full"></div>
-                        <h2 className="text-2xl font-bold text-white whitespace-nowrap">History</h2>
+                        <h2 className="text-2xl font-bold text-gray-900 dark:text-white whitespace-nowrap">History</h2>
                     </div>
 
                     <div className="bg-gray-800/50 p-1 rounded-xl flex items-center self-start sm:self-auto">
@@ -116,27 +116,27 @@ export default function AttendanceHistory({
                     {/* Search */}
                     {viewMode === 'all' && (
                         <div className="relative group">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-purple-400 transition-colors" />
+                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 group-focus-within:text-purple-500 dark:group-focus-within:text-purple-400 transition-colors" />
                             <input
                                 type="text"
                                 value={employeeFilter}
                                 onChange={(e) => onEmployeeFilterChange(e.target.value)}
                                 placeholder="Search employees..."
-                                className="w-48 h-10 pl-10 pr-4 bg-gray-900/50 border border-gray-700 rounded-xl text-sm text-gray-300 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all placeholder:text-gray-600"
+                                className="w-48 h-10 pl-10 pr-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-900 dark:text-gray-300 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600"
                             />
                         </div>
                     )}
 
                     {/* Date Picker */}
                     <div className="relative group">
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none">
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 pointer-events-none">
                             <Calendar className="w-4 h-4" />
                         </div>
                         <input
                             type="date"
                             value={dateFilter}
                             onChange={(e) => onDateFilterChange(e.target.value)}
-                            className="w-40 h-10 pl-10 pr-4 bg-gray-900/50 border border-gray-700 rounded-xl text-sm text-gray-300 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all cursor-pointer [color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full"
+                            className="w-40 h-10 pl-10 pr-4 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-700 rounded-xl text-sm text-gray-900 dark:text-gray-300 focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 transition-all cursor-pointer [color-scheme:light] dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full"
                         />
                     </div>
 
@@ -162,7 +162,7 @@ export default function AttendanceHistory({
             </div>
 
             {/* Table Header */}
-            <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-gray-800 text-xs font-bold text-gray-500 uppercase tracking-wider">
+            <div className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-gray-100 dark:border-gray-800 text-xs font-bold text-gray-500 uppercase tracking-wider">
                 <div className="col-span-4 pl-2">Employee</div>
                 <div className="col-span-2 text-center">Date</div>
                 <div className="col-span-2 text-center">Mode</div>
@@ -193,10 +193,10 @@ export default function AttendanceHistory({
                                 'text-purple-400 bg-purple-400/10 border-purple-400/20';
 
                             return (
-                                <div key={log.id} className="grid grid-cols-12 gap-4 px-4 py-4 items-center hover:bg-gray-900/50 transition-colors group rounded-xl my-1 relative">
+                                <div key={log.id} className="grid grid-cols-12 gap-4 px-4 py-4 items-center hover:bg-gray-50 dark:hover:bg-gray-900/50 transition-colors group rounded-xl my-1 relative">
                                     {/* Employee */}
                                     <div className="col-span-4 flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl bg-gray-800 flex items-center justify-center text-white font-bold text-sm overflow-hidden border border-gray-700">
+                                        <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-white font-bold text-sm overflow-hidden border border-gray-200 dark:border-gray-700">
                                             {log.profiles?.avatar_url ? (
                                                 <img src={log.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
                                             ) : (
@@ -204,14 +204,14 @@ export default function AttendanceHistory({
                                             )}
                                         </div>
                                         <div className="min-w-0">
-                                            <div className="text-sm font-bold text-white truncate">{log.profiles?.full_name}</div>
+                                            <div className="text-sm font-bold text-gray-900 dark:text-white truncate">{log.profiles?.full_name}</div>
                                             <div className="text-xs text-gray-500 truncate">{log.profiles?.email}</div>
                                         </div>
                                     </div>
 
                                     {/* Date */}
                                     <div className="col-span-2 flex flex-col items-center">
-                                        <span className="text-lg font-bold text-white leading-none">{dateInfo.day}</span>
+                                        <span className="text-lg font-bold text-gray-700 dark:text-white leading-none">{dateInfo.day}</span>
                                         <span className="text-[10px] font-medium text-gray-500 uppercase">{dateInfo.monthYear}</span>
                                     </div>
 
@@ -232,19 +232,19 @@ export default function AttendanceHistory({
                                     {/* Times */}
                                     <div className="col-span-2 flex flex-col items-end gap-1">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">IN</span>
-                                            <span className="text-xs font-medium text-gray-300 font-mono">
+                                            <span className="text-[10px] font-bold text-gray-400 dark:text-gray-600 uppercase tracking-wider">IN</span>
+                                            <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
                                                 {formatTime(log.clock_in).replace(/\s(am|pm)/, '')}
-                                                <span className="text-[10px] text-gray-500 ml-0.5">{formatTime(log.clock_in).slice(-2)}</span>
+                                                <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-0.5">{formatTime(log.clock_in).slice(-2)}</span>
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">OUT</span>
-                                            <span className="text-xs font-medium text-gray-300 font-mono">
+                                            <span className="text-[10px] font-bold text-gray-400 dark:text-gray-600 uppercase tracking-wider">OUT</span>
+                                            <span className="text-xs font-medium text-gray-700 dark:text-gray-300 font-mono">
                                                 {log.clock_out ? (
                                                     <>
                                                         {formatTime(log.clock_out).replace(/\s(am|pm)/, '')}
-                                                        <span className="text-[10px] text-gray-500 ml-0.5">{formatTime(log.clock_out).slice(-2)}</span>
+                                                        <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-0.5">{formatTime(log.clock_out).slice(-2)}</span>
                                                     </>
                                                 ) : (
                                                     '--:--'
@@ -255,10 +255,10 @@ export default function AttendanceHistory({
 
                                     {/* Edit Overlay (HR Only) */}
                                     {isHR && (
-                                        <div className="absolute inset-0 bg-black/60 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
+                                        <div className="absolute inset-0 bg-white/60 dark:bg-black/60 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-[2px]">
                                             <button
                                                 onClick={() => handleEditClick(log)}
-                                                className="bg-white text-gray-900 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:scale-105 transition-transform"
+                                                className="bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:scale-105 transition-transform shadow-lg"
                                             >
                                                 <Edit2 className="w-4 h-4" />
                                                 Edit Record
@@ -287,10 +287,16 @@ export default function AttendanceHistory({
                     background: transparent;
                 }
                 .custom-scrollbar::-webkit-scrollbar-thumb {
-                    background: #374151;
+                    background: #cbd5e1;
                     border-radius: 2px;
                 }
+                .dark .custom-scrollbar::-webkit-scrollbar-thumb {
+                    background: #374151;
+                }
                 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                    background: #94a3b8;
+                }
+                .dark .custom-scrollbar::-webkit-scrollbar-thumb:hover {
                     background: #4b5563;
                 }
             `}</style>

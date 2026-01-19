@@ -10,6 +10,7 @@ import PayrollSettings from '../components/PayrollSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import WhosWorking from '../components/WhosWorking';
 import Announcements from '../components/Announcements';
+import SystemDataSettings from '../components/SystemDataSettings';
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -160,6 +161,7 @@ export default function Dashboard() {
                                 </div>
                                 <div className="w-full">
                                     <PayrollSettings />
+                                    <SystemDataSettings />
                                 </div>
                             </div>
 

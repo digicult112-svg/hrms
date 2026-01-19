@@ -13,6 +13,8 @@ import JobsPage from './pages/Jobs';
 import CandidatesPage from './pages/Candidates';
 import Helpdesk from './pages/Helpdesk';
 import EmailCommunication from './pages/EmailCommunication';
+import AdminDashboard from './pages/AdminDashboard';
+import Feedback from './pages/Feedback';
 
 import AuditLogsPage from './pages/AuditLogs';
 import Layout from './components/Layout';
@@ -72,6 +74,24 @@ function App() {
                   element={
                     <PrivateRoute roles={['hr']}>
                       <EmailCommunication />
+                    </PrivateRoute>
+                  }
+                />
+
+                <Route
+                  path="/admin-dashboard"
+                  element={
+                    <PrivateRoute roles={['admin']}>
+                      <AdminDashboard />
+                    </PrivateRoute>
+                  }
+                />
+
+                <Route
+                  path="/feedback"
+                  element={
+                    <PrivateRoute>
+                      <Feedback />
                     </PrivateRoute>
                   }
                 />

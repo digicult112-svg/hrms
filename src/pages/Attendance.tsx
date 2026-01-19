@@ -166,8 +166,8 @@ export default function AttendancePage() {
                         <button
                             onClick={() => setHrView('list')}
                             className={`p-2 rounded-lg transition-all ${hrView === 'list'
-                                    ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm'
-                                    : 'text-gray-400 hover:text-gray-600'
+                                ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm'
+                                : 'text-gray-400 hover:text-gray-600'
                                 }`}
                             title="List View"
                         >
@@ -176,8 +176,8 @@ export default function AttendancePage() {
                         <button
                             onClick={() => setHrView('calendar')}
                             className={`p-2 rounded-lg transition-all ${hrView === 'calendar'
-                                    ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm'
-                                    : 'text-gray-400 hover:text-gray-600'
+                                ? 'bg-white dark:bg-gray-700 text-purple-600 dark:text-purple-400 shadow-sm'
+                                : 'text-gray-400 hover:text-gray-600'
                                 }`}
                             title="Calendar View"
                         >
@@ -226,13 +226,13 @@ export default function AttendancePage() {
                         )}
 
                         {/* Quick Stats Card */}
-                        <div className="bg-gray-900 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-gray-900/20 relative overflow-hidden group">
+                        <div className="bg-white dark:bg-gray-900 rounded-[2.5rem] p-8 shadow-xl shadow-gray-200/50 dark:shadow-gray-900/20 relative overflow-hidden group border border-gray-100 dark:border-gray-800">
                             <div className="relative z-10">
-                                <h3 className="text-gray-400 font-medium mb-1 uppercase tracking-wider text-xs">Weekly Summary</h3>
-                                <div className="text-5xl font-bold mb-6 tracking-tight">{weeklyHours}<span className="text-2xl text-gray-500 font-medium">h</span></div>
+                                <h3 className="text-gray-500 dark:text-gray-400 font-medium mb-1 uppercase tracking-wider text-xs">Weekly Summary</h3>
+                                <div className="text-5xl font-bold mb-6 tracking-tight text-gray-900 dark:text-white">{weeklyHours}<span className="text-2xl text-gray-400 dark:text-gray-500 font-medium">h</span></div>
                                 <div className="flex items-center gap-3">
-                                    <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-xs font-bold border border-green-500/20 flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-green-400"></span>
+                                    <span className="bg-green-500/10 dark:bg-green-500/20 text-green-600 dark:text-green-400 px-3 py-1 rounded-full text-xs font-bold border border-green-500/10 dark:border-green-500/20 flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 dark:bg-green-400"></span>
                                         +12%
                                     </span>
                                     <span className="text-sm text-gray-500 font-medium">vs last week</span>
@@ -240,8 +240,8 @@ export default function AttendancePage() {
                             </div>
 
                             {/* Abstract shapes */}
-                            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-purple-500/30 rounded-full blur-[80px] group-hover:bg-purple-500/40 transition-all duration-500"></div>
-                            <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 bg-indigo-500/20 rounded-full blur-[60px] group-hover:bg-indigo-500/30 transition-all duration-500"></div>
+                            <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-purple-500/10 dark:bg-purple-500/30 rounded-full blur-[80px] group-hover:bg-purple-500/20 dark:group-hover:bg-purple-500/40 transition-all duration-500"></div>
+                            <div className="absolute bottom-0 left-0 -ml-16 -mb-16 w-48 h-48 bg-indigo-500/10 dark:bg-indigo-500/20 rounded-full blur-[60px] group-hover:bg-indigo-500/15 dark:group-hover:bg-indigo-500/30 transition-all duration-500"></div>
                         </div>
                     </div>
 

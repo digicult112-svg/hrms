@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Candidate, JobPosition } from '../types';
-import { Search, Plus, X, Download, FileText, FileSpreadsheet } from 'lucide-react';
+import { Search, Plus, X, Download, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -20,7 +20,7 @@ const COLUMNS: { id: Candidate['status']; title: string; color: string; badge: s
 ];
 
 // Memoized Card Component for Performance
-const CandidateCard = React.memo(({ candidate, index }: { candidate: CandidateWithJob; index: number }) => {
+const CandidateCard = React.memo(({ candidate, index, onDelete }: { candidate: CandidateWithJob; index: number; onDelete: (id: string, e: React.MouseEvent) => void }) => {
     return (
         <Draggable draggableId={candidate.id} index={index}>
             {(provided, snapshot) => (
@@ -39,9 +39,18 @@ const CandidateCard = React.memo(({ candidate, index }: { candidate: CandidateWi
                         <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
                             {candidate.job?.title?.slice(0, 15) || 'General'}{candidate.job?.title?.length! > 15 ? '...' : ''}
                         </span>
-                        <span className="text-[10px] text-gray-400">
-                            {new Date(candidate.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                        </span>
+                        <div className="flex items-center gap-1">
+                            <button
+                                onClick={(e) => onDelete(candidate.id, e)}
+                                className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 opacity-0 group-hover:opacity-100"
+                                title="Delete Candidate"
+                            >
+                                <Trash2 className="w-3 h-3" />
+                            </button>
+                            <span className="text-[10px] text-gray-400">
+                                {new Date(candidate.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                        </div>
                     </div>
 
                     <div className="flex items-center gap-2.5">
@@ -174,6 +183,37 @@ export default function CandidatesPage() {
             alert(error.message);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteCandidate = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!confirm('Are you sure you want to delete this candidate?')) return;
+
+        // Optimistic update
+        const candidateToDelete = candidates.find(c => c.id === id);
+        setCandidates(prev => prev.filter(c => c.id !== id));
+
+        try {
+            const { error, count } = await supabase
+                .from('candidates')
+                .delete({ count: 'exact' })
+                .eq('id', id);
+
+            if (error) throw error;
+
+            // Check if any row was actually deleted
+            if (count === 0) {
+                throw new Error('Candidate was not deleted from database (likely permission issue)');
+            }
+
+        } catch (error: any) {
+            console.error('Error deleting candidate:', error);
+            alert(`Failed to delete candidate: ${error.message || 'Unknown error'}`);
+            // Revert
+            if (candidateToDelete) {
+                setCandidates(prev => [...prev, candidateToDelete]);
+            }
         }
     };
 
@@ -459,6 +499,7 @@ export default function CandidatesPage() {
                                                         key={candidate.id}
                                                         candidate={candidate}
                                                         index={index}
+                                                        onDelete={handleDeleteCandidate}
                                                     />
                                                 ))}
                                                 {provided.placeholder}

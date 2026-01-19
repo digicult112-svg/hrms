@@ -1,4 +1,10 @@
-export type Role = 'hr' | 'employee';
+export type Role = 'hr' | 'employee' | 'admin';
+
+export interface AnonymousMessage {
+    id: string;
+    message: string;
+    created_at: string;
+}
 
 export interface Profile {
     id: string;

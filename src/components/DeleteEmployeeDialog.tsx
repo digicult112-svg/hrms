@@ -25,11 +25,7 @@ export default function DeleteEmployeeDialog({
         setLoading(true);
 
         try {
-            // Delete from profiles table
-            // Note: We cannot delete from auth.users without service role key or edge function
-            // Deleting the profile effectively removes them from the app
-            // Soft delete: Mark as frozen and set deleted_at
-            // This ensures audit logs are kept for 3 months (handled by cleanup job)
+            // Step 1: Soft delete - Mark as frozen and set deleted_at
             const { error: deleteError } = await supabase
                 .from('profiles')
                 .update({
@@ -39,6 +35,38 @@ export default function DeleteEmployeeDialog({
                 .eq('id', employeeId);
 
             if (deleteError) throw deleteError;
+
+            // Step 2: Ban user at auth level to prevent authentication
+            // This blocks login at database level, not just app level
+            const { data: banResult, error: banError } = await supabase.rpc('ban_user', {
+                target_user_id: employeeId
+            });
+
+            if (banError) {
+                // Rollback the soft delete if ban fails
+                console.error('Failed to ban user, rolling back soft delete:', banError);
+                await supabase
+                    .from('profiles')
+                    .update({
+                        is_frozen: false,
+                        deleted_at: null
+                    })
+                    .eq('id', employeeId);
+                throw new Error(`Failed to revoke authentication: ${banError.message}`);
+            }
+
+            if (!banResult?.success) {
+                // Rollback the soft delete if ban fails
+                console.error('Ban returned failure, rolling back:', banResult?.error);
+                await supabase
+                    .from('profiles')
+                    .update({
+                        is_frozen: false,
+                        deleted_at: null
+                    })
+                    .eq('id', employeeId);
+                throw new Error(`Failed to revoke authentication: ${banResult?.error || 'Unknown error'}`);
+            }
 
             onSuccess();
             onClose();

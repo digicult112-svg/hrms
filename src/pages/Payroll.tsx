@@ -4,10 +4,11 @@ import type { Payroll } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Download, Plus, X, IndianRupee, Search, Save, Trash2, RotateCcw } from 'lucide-react';
 import jsPDF from 'jspdf';
-import { getBase64FromUrl } from '../utils/export';
+import { getImageDetails } from '../utils/export';
 import autoTable from 'jspdf-autotable';
 import { useToast } from '../context/ToastContext';
 import { sendEmail } from '../lib/email';
+import digicultLogo from '../assets/digicult.png';
 
 export default function PayrollPage() {
     const { user, profile } = useAuth();
@@ -392,12 +393,11 @@ export default function PayrollPage() {
 
             if (holError) throw holError;
 
-            // 4. Process each employee
-
-            let processedCount = 0;
+            // 4. Calculate payroll for each employee (NO DATABASE WRITES YET)
+            const payrollRecords: any[] = [];
             const emailsToSend: any[] = [];
 
-            console.log('Starting generation for', employees?.length, 'employees');
+            console.log('Calculating payroll for', employees?.length, 'employees');
 
             for (const emp of employees || []) {
                 const baseSalary = emp.salary || 0;
@@ -446,50 +446,33 @@ export default function PayrollPage() {
                 });
 
                 // Rule: Paid Leaves allowed per month (from settings)
-                // Default to 1 if not set or invalid
                 const paidLeaveQuota = paidLeavesPerMonth >= 0 ? paidLeavesPerMonth : 1;
-
-                // Effective paid leaves taken is capped by what was approved, but for deduction purposes:
-                // We count how many approved leave days fall within the quota.
                 const paidLeavesUsed = Math.min(totalApprovedLeaveDays, paidLeaveQuota);
 
                 // Calculate Weekends in Cycle
                 let weekends = 0;
-                let loopDate = new Date(prevMonthDate);
-                // Create a temporary date object to iterate so we don't modify prevMonthDate
-                const iterDate = new Date(loopDate);
+                const iterDate = new Date(prevMonthDate);
 
                 while (iterDate <= currMonthDate) {
                     const day = iterDate.getDay();
-                    if (day === 0 || day === 6) weekends++; // Sun=0, Sat=6
+                    if (day === 0 || day === 6) weekends++;
                     iterDate.setDate(iterDate.getDate() + 1);
                 }
 
                 // Total Paid Days Calculation
-                // Paid Days = Present + Holidays + Weekends + Approved Leaves (up to quota)
-                // Any approved leave BEYOND quota is effectively unpaid (LOP).
                 let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
-
                 if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
 
                 // LOP Calculation
-                // LOP Days = Total Days in Cycle - Paid Days
                 const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-
-                // Deduction Logic: Salary is cut off by 30/salary amount (meaning 1/30th of salary per day)
-                // Deduction Logic: Salary is cut off by 30/salary amount (meaning 1/30th of salary per day)
                 const perDaySalary = Number(baseSalary) / 30;
 
                 // LOP Deduction
                 let deductions = Math.round(lopDays * perDaySalary);
 
-                // Tax Calculation (Mock logic: 10% if > 50k, 20% if > 1L, etc. - simplified)
-                // Only if enabled in settings. APPLY TO ALL (including HR).
+                // Tax Calculation
                 let taxAmount = 0;
                 if (enableTax) {
-                    // Simple slab for demo: 0-25k: 0%, 25k-50k: 5%, 50k-1L: 10%, >1L: 15%
-                    // This is monthly tax
-                    // This is monthly tax
                     const salaryNum = Number(baseSalary);
                     if (salaryNum > 100000) taxAmount = salaryNum * 0.15;
                     else if (salaryNum > 50000) taxAmount = salaryNum * 0.10;
@@ -505,61 +488,63 @@ export default function PayrollPage() {
                     tax_amount: taxAmount
                 };
 
-                // 1. Delete existing for this month/year cycle
-                await supabase
-                    .from('payroll')
-                    .delete()
-                    .eq('user_id', emp.id)
-                    .eq('month', month)
-                    .eq('year', year);
-
-                // 2. Insert new payroll record
-                const { error: insertError } = await supabase.from('payroll').insert({
+                // Add to batch (NO DATABASE WRITE YET)
+                payrollRecords.push({
                     user_id: emp.id,
                     base_salary: baseSalary,
                     hra: 0,
                     allowances: 0,
                     deductions: deductions,
-                    month,
-                    year,
-                    metadata // Store breakdown
+                    metadata: metadata
                 });
 
-                if (insertError) {
-                    console.error('Error inserting payroll for', emp.full_name, insertError);
-                }
-
-                if (!insertError) {
-                    processedCount++;
-                    // Queue for email
-                    if (emp.email) {
-                        emailsToSend.push({
-                            to: emp.email,
-                            name: emp.full_name,
-                            monthName: getMonthName(month),
-                            year: year,
-                            base: baseSalary,
-                            hra: 0,
-                            allowances: 0,
-                            deductions: deductions,
-                            net: baseSalary + 0 + 0 - deductions,
-                            details: metadata
-                        });
-                    }
+                // Queue for email (only sent after successful commit)
+                if (emp.email) {
+                    emailsToSend.push({
+                        to: emp.email,
+                        name: emp.full_name,
+                        monthName: getMonthName(month),
+                        year: year,
+                        base: baseSalary,
+                        hra: 0,
+                        allowances: 0,
+                        deductions: deductions,
+                        net: baseSalary + 0 + 0 - deductions,
+                        details: metadata
+                    });
                 }
             }
+
+            // 5. ATOMIC COMMIT: Call RPC to insert all records in a single transaction
+            console.log(`Committing ${payrollRecords.length} payroll records atomically...`);
+
+            const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
+                payroll_records: payrollRecords,
+                target_month: month,
+                target_year: year
+            });
+
+            if (rpcError) {
+                throw new Error(`Transaction failed: ${rpcError.message}. No records were saved.`);
+            }
+
+            // Check RPC result for success
+            if (!rpcResult?.success) {
+                throw new Error(`Transaction rolled back: ${rpcResult?.error || 'Unknown error'}. No records were saved.`);
+            }
+
+            const processedCount = rpcResult.processed_count || 0;
 
             if (processedCount === 0) {
                 toastError(`No eligible employees found for payroll generation.`);
             } else {
-                success(`Successfully generated payroll for ${processedCount} employees.`);
+                success(`Successfully generated payroll for ${processedCount} employees (atomic transaction).`);
             }
 
-            // Send Emails
-            if (emailsToSend.length > 0) {
+            // 6. Send Emails (only after successful commit)
+            if (emailsToSend.length > 0 && processedCount > 0) {
                 success(`Sending ${emailsToSend.length} payslip emails...`);
 
-                // Send in parallel (with some caution, but for <100 employees Promise.all is usually fine)
                 await Promise.all(emailsToSend.map(async (data) => {
                     const { to, name, monthName, year: pYear, base, hra, allowances, deductions, net, details } = data;
 
@@ -643,7 +628,7 @@ export default function PayrollPage() {
         try {
             // 1. Fetch ALL settings needed (Logo + Cycle + Tax)
             // 1. Fetch ALL settings needed (Logo + Cycle + Tax)
-            let logoUrl = '';
+            let logoUrl = digicultLogo;
             let companyAddress = '123 Innovation Drive\nHyderabad, India 500081\ncontact@hrms.com';
             let footerText = 'This payslip is system generated and does not require a physical signature.';
             let showId = true;
@@ -777,13 +762,28 @@ export default function PayrollPage() {
             // Add Logo if available
             if (logoUrl) {
                 try {
-                    const logoBase64 = await getBase64FromUrl(logoUrl);
-                    // Add image at top-left, scaled. Passing 'undefined' as format allows jsPDF to infer from Data URI
-                    doc.addImage(logoBase64, 'PNG', 20, 10, 20, 20);
+                    const logoData = await getImageDetails(logoUrl);
 
-                    // Shift text down or right depending on layout preferences. 
-                    // Let's shift "HRMS Corp." to the right of logo
-                    // doc.text("HRMS Corp.", 45, 20);
+                    // Box Constraints
+                    const maxWidth = 50;
+                    const maxHeight = 25;
+
+                    // Calculate scaled dimensions
+                    let finalWidth = logoData.width;
+                    let finalHeight = logoData.height;
+
+                    // Scale down if needed
+                    const widthRatio = maxWidth / logoData.width;
+                    const heightRatio = maxHeight / logoData.height;
+                    const scaleFactor = Math.min(widthRatio, heightRatio, 1); // Never scale up, only down if too big
+
+                    finalWidth = logoData.width * scaleFactor;
+                    finalHeight = logoData.height * scaleFactor;
+
+                    // Vertical alignment: Center in the 10-40 Y-space? Or just top align at 10.
+                    // Top align at 10 is safest to avoid hitting address.
+                    doc.addImage(logoData.dataUrl, 'PNG', 20, 10, finalWidth, finalHeight);
+
                 } catch (err) {
                     console.error('Failed to load logo image for PDF', err);
                     // Fallback to text only
