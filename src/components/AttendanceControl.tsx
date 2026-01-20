@@ -39,10 +39,9 @@ export default function AttendanceControl({ onAttendanceUpdate }: { onAttendance
                         mode={mode}
                         wfhRejected={wfhRejected}
                         isPendingApproval={isPendingApproval}
-                        workHoursGoal={WORK_HOURS_GOAL}
                     />
 
-                    {mode !== 'wfh' && status !== 'completed' && (
+                    {mode === 'onsite' && status !== 'completed' && (
                         <AttendanceTimer
                             status={status}
                             elapsedSeconds={elapsedSeconds}

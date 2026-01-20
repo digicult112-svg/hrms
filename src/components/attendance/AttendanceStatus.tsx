@@ -6,16 +6,24 @@ interface AttendanceStatusProps {
     mode: AttendanceMode;
     wfhRejected: boolean;
     isPendingApproval: boolean;
-    workHoursGoal: number;
 }
+
+const WFH_QUOTES = [
+    "Work is where you are.",
+    "Focus on the output, not the location.",
+    "Productivity has no borders.",
+    "Your office, your rules.",
+    "Work smart, stay remote.",
+    "Efficiency meets flexibility."
+];
 
 export const AttendanceStatusCard = ({
     status,
     mode,
     wfhRejected,
-    isPendingApproval,
-    workHoursGoal
+    isPendingApproval
 }: AttendanceStatusProps) => {
+    const quote = WFH_QUOTES[Math.floor(Math.random() * WFH_QUOTES.length)];
     if (status === 'completed') {
         return (
             <div className="max-w-md mx-auto bg-purple-50/50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-3xl p-8 text-center animate-in zoom-in-95 duration-300">
@@ -45,7 +53,7 @@ export const AttendanceStatusCard = ({
                 <p className="text-gray-500 dark:text-gray-400 max-w-sm mx-auto leading-relaxed">
                     {wfhRejected ? 'Please contact HR. Your request was marked as rejected.' :
                         isPendingApproval ? 'Your request has been submitted and is waiting for HR approval.' :
-                            `You are successfully clocked in for ${workHoursGoal} hours.`}
+                            quote}
                 </p>
             </div>
         );

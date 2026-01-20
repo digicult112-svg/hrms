@@ -327,8 +327,8 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
 
                                     {(emp.status === 'leave' || emp.status === 'absent_marked') && (
                                         <>
-                                            <span className={`px - 3 py - 1 text - xs font - bold rounded - full ${emp.status === 'leave' ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300' : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-                                                } `}>
+                                            <span className={`px-3 py-1 text-xs font-bold rounded-full ${emp.status === 'leave' ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300' : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                                                }`}>
                                                 {emp.status === 'leave' ? 'Leave' : 'Absent'}
                                             </span>
                                             {/* Allow overriding Leave/Absent with Present */}

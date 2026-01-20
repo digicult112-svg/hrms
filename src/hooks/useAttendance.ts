@@ -14,7 +14,7 @@ const withTimeout = <T>(promise: PromiseLike<T>): Promise<T> => {
 };
 
 export const useAttendance = (onAttendanceUpdate?: () => void) => {
-    const { user, profile } = useAuth();
+    const { user, profile, tenantId } = useAuth();
     const { success, error: toastError } = useToast();
 
     // State
@@ -47,21 +47,33 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
         }
 
         try {
-            // Get the server's definition of "Today" to handle timezone discrepancies
-            const { data: serverToday, error: rpcError } = await supabase.rpc('get_server_today');
-            if (rpcError) throw rpcError;
+            // Fallback for today's date if RPC fails or is missing
+            let serverToday = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+            try {
+                const { data, error: rpcError } = await supabase.rpc('get_server_today');
+                if (!rpcError && data) serverToday = data;
+            } catch (err) {
+                console.warn('RPC get_server_today not found, using client date');
+            }
 
+            // Fetch the MOST RECENT log for the user to avoid strict date match misses
             const { data, error } = await supabase
                 .from('attendance_logs')
                 .select('*')
                 .eq('user_id', user.id)
-                .eq('work_date', serverToday)
-                .maybeSingle();
+                .order('created_at', { ascending: false })
+                .limit(1);
 
             if (error) throw error;
+            setLocationError(null);
 
-            if (data) {
-                const log = data as AttendanceLog;
+            if (data && data.length > 0) {
+                const log = data[0] as AttendanceLog;
+
+                // Only consider it "today's log" if the dates align
+                if (log.work_date !== serverToday) {
+                    return null;
+                }
                 setTodayLogId(log.id);
                 setMode(log.mode);
                 if (log.wfh_reason) setWfhReason(log.wfh_reason);
@@ -298,10 +310,63 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
         setLoading(true);
         setLocationError(null);
 
+        // Get the server's definition of "Today" for consistent insertion
+        let serverToday = new Date().toLocaleDateString('en-CA');
+        try {
+            const { data } = await supabase.rpc('get_server_today');
+            if (data) serverToday = data;
+        } catch (err) {
+            console.warn('Could not fetch server date, using local');
+        }
+
+        // Safety check: if mode is WFH, skip all geo checks immediately
+        if (mode === 'wfh') {
+            try {
+                const { data, error } = await withTimeout(
+                    supabase
+                        .from('attendance_logs')
+                        .insert({
+                            user_id: user.id,
+                            tenant_id: tenantId || profile?.tenant_id,
+                            work_date: serverToday,
+                            clock_in: new Date().toISOString(),
+                            mode: 'wfh',
+                            wfh_reason: wfhReason,
+                            status: 'pending',
+                            total_pause_seconds: 0
+                        })
+                        .select()
+                        .single()
+                ) as any;
+                if (error) throw error;
+
+                setTodayLogId(data.id);
+                setStartTime(new Date(data.clock_in));
+                setStatus('working');
+                setIsPendingApproval(true);
+                notifyHR(
+                    'Remote Work Request',
+                    `${profile?.full_name || 'An employee'} has requested to work primarily from home today. Reason: ${wfhReason}`,
+                    'info'
+                );
+                if (onAttendanceUpdate) onAttendanceUpdate();
+                success('Request Submitted', 'Your WFH request has been sent to HR.');
+                setLoading(false);
+                return;
+            } catch (error: any) {
+                const msg = error.message || 'Failed to submit WFH request';
+                setLocationError(msg);
+                toastError('Request Failed', msg);
+                setLoading(false);
+                return;
+            }
+        }
+
         try {
             let lat = null;
             let lon = null;
 
+            // This block is now strictly for Onsite
             if (mode === 'onsite') {
                 try {
                     const position = await getLocation();
@@ -324,13 +389,14 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
                     .from('attendance_logs')
                     .insert({
                         user_id: user.id,
-                        // work_date: removed - let DB DEFAULT CURRENT_DATE handle it
-                        // clock_in: removed - let DB DEFAULT NOW() handle it
-                        mode: mode,
+                        tenant_id: tenantId || profile?.tenant_id,
+                        work_date: serverToday,
+                        clock_in: new Date().toISOString(),
+                        mode: 'onsite',
                         geo_lat: lat,
                         geo_lon: lon,
-                        wfh_reason: mode === 'wfh' ? wfhReason : null,
-                        status: mode === 'wfh' ? 'pending' : 'approved',
+                        wfh_reason: null,
+                        status: 'approved',
                         total_pause_seconds: 0
                     })
                     .select()
@@ -340,34 +406,27 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
             if (error) throw error;
 
             setTodayLogId(data.id);
-            setStartTime(new Date(data.clock_in)); // Use the timestamp returned by the server
+            setStartTime(new Date(data.clock_in));
             setStatus('working');
-            if (mode === 'wfh') {
-                setIsPendingApproval(true);
-                notifyHR(
-                    'Remote Work Request',
-                    `${profile?.full_name || 'An employee'} has requested to work primarily from home today. Reason: ${wfhReason}`,
-                    'info'
-                );
-            } else {
-                supabase
-                    .from('system_settings')
-                    .select('value')
-                    .eq('key', 'enable_clock_in_notifications')
-                    .single()
-                    .then(({ data }) => {
-                        if (data && data.value === 'true') {
-                            notifyHR(
-                                'Clock In Alert',
-                                `${profile?.full_name || 'An employee'} has clocked in from Office.`,
-                                'info',
-                                false
-                            );
-                        }
-                    });
-            }
+
+            supabase
+                .from('system_settings')
+                .select('value')
+                .eq('key', 'enable_clock_in_notifications')
+                .single()
+                .then(({ data }) => {
+                    if (data && data.value === 'true') {
+                        notifyHR(
+                            'Clock In Alert',
+                            `${profile?.full_name || 'An employee'} has clocked in from Office.`,
+                            'info',
+                            false
+                        );
+                    }
+                });
+
             if (onAttendanceUpdate) onAttendanceUpdate();
-            success('Good Morning!', `You have clocked in successfully via ${mode === 'onsite' ? 'Office' : 'Remote'}.`);
+            success('Good Morning!', 'You have clocked in successfully via Office.');
 
         } catch (error: any) {
             console.error('Error clocking in:', error);

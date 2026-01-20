@@ -147,8 +147,8 @@ user_id,
                                             size={40}
                                         />
                                     </div>
-                                    <div className={`absolute - bottom - 0.5 - right - 0.5 w - 3.5 h - 3.5 border - 2 border - white dark: border - gray - 900 rounded - full ${emp.status === 'paused' ? 'bg-amber-400' : 'bg-green-500'
-                                        } `} />
+                                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white dark:border-gray-900 rounded-full ${emp.status === 'paused' ? 'bg-amber-400' : 'bg-green-500'
+                                        }`} />
                                 </div>
 
                                 {/* Info */}
@@ -158,10 +158,10 @@ user_id,
                                 </div>
 
                                 {/* Status Badge */}
-                                <div className={`flex items - center gap - 1.5 px - 2.5 py - 1 rounded - lg text - [10px] font - bold uppercase tracking - wide border ${emp.mode === 'onsite'
-                                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-900/30'
-                                        : 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-100 dark:border-purple-900/30'
-                                    } `}>
+                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${emp.mode === 'onsite'
+                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-900/30'
+                                    : 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-100 dark:border-purple-900/30'
+                                    }`}>
                                     {emp.mode === 'onsite' ? <Briefcase className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
                                     {emp.mode === 'onsite' ? 'Office' : 'Remote'}
                                 </div>

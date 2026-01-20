@@ -33,7 +33,7 @@ export const AttendanceActions = ({
 
     return (
         <div className="mt-8 pt-8 border-t border-gray-100 dark:border-gray-800">
-            {locationError && (
+            {locationError && mode === 'onsite' && (
                 <div className="mb-6 bg-red-50/50 dark:bg-red-900/20 backdrop-blur-sm border border-red-100 dark:border-red-900/30 text-red-600 dark:text-red-400 p-4 rounded-2xl flex items-start gap-3 animate-in slide-in-from-top-2">
                     <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
                     <p className="font-medium text-sm">{locationError}</p>
