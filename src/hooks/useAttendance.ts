@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
-import { toLocalISOString } from '../utils/date';
 import { notifyHR } from '../lib/notifications';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';

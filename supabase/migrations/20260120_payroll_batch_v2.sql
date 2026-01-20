@@ -43,6 +43,7 @@ DECLARE
   net_salary NUMERIC;
   
   calc_metadata JSONB;
+  attendance_snap JSONB;
 BEGIN
   -- 🔒 SECURITY CHECK: Only HR or Admins can generate payroll
   IF NOT EXISTS (
@@ -85,8 +86,17 @@ BEGIN
 
     CONTINUE WHEN emp_base_salary IS NULL OR emp_base_salary = 0;
 
-    -- A. Count Present Days (Onsite or Approved Remote)
-    SELECT COUNT(DISTINCT work_date) INTO present_days
+    -- A. Count Present Days and Capture Snapshot
+    SELECT 
+      COUNT(DISTINCT work_date),
+      jsonb_agg(jsonb_build_object(
+        'work_date', work_date,
+        'mode', mode,
+        'clock_in', clock_in,
+        'clock_out', clock_out,
+        'total_hours', total_hours
+      ))
+    INTO present_days, attendance_snap
     FROM attendance_logs
     WHERE user_id = curr_user_id
       AND work_date BETWEEN cycle_start AND cycle_end
@@ -125,7 +135,7 @@ BEGIN
     END IF;
 
     lop_days := GREATEST(0, total_days_in_cycle - paid_days);
-    lop_amount := ROUND((emp_base_salary / 30.0) * lop_days);
+    lop_amount := ROUND((emp_base_salary / total_days_in_cycle::NUMERIC) * lop_days);
 
     -- F. Tax Calculation
     tax_amount := 0;
@@ -186,6 +196,7 @@ BEGIN
       month,
       year,
       metadata,
+      attendance_snapshot,
       version,
       is_current
     ) VALUES (
@@ -197,6 +208,7 @@ BEGIN
       target_month,
       target_year,
       calc_metadata,
+      attendance_snap,
       (SELECT COALESCE(MAX(version), 0) + 1 FROM payroll WHERE user_id = curr_user_id AND month = target_month AND year = target_year),
       TRUE
     );

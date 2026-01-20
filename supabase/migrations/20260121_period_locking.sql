@@ -38,8 +38,19 @@ BEGIN
         v_month := v_row.month;
         v_year := v_row.year;
     ELSIF TG_TABLE_NAME = 'leave_requests' THEN
-        v_month := EXTRACT(MONTH FROM v_row.start_date);
-        v_year := EXTRACT(YEAR FROM v_row.start_date);
+        -- Check if either the start month or the end month of the leave is locked
+        IF EXISTS (
+            SELECT 1 FROM public.payroll_periods 
+            WHERE tenant_id = v_row.tenant_id AND is_locked = TRUE 
+            AND (
+                (month = EXTRACT(MONTH FROM v_row.start_date) AND year = EXTRACT(YEAR FROM v_row.start_date))
+                OR 
+                (month = EXTRACT(MONTH FROM v_row.end_date) AND year = EXTRACT(YEAR FROM v_row.end_date))
+            )
+        ) THEN
+            RAISE EXCEPTION 'Restricted Action: The leave request spans a locked payroll period. No further modifications are allowed.';
+        END IF;
+        RETURN v_row;
     END IF;
 
     -- Check if that period is locked for this tenant
