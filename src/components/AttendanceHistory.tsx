@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import SafeAvatar from './SafeAvatar';
 import { Search, Download, Calendar, Edit2, Plus } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import AttendanceEditModal from './AttendanceEditModal';
@@ -197,11 +198,12 @@ export default function AttendanceHistory({
                                     {/* Employee */}
                                     <div className="col-span-4 flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-gray-600 dark:text-white font-bold text-sm overflow-hidden border border-gray-200 dark:border-gray-700">
-                                            {log.profiles?.avatar_url ? (
-                                                <img src={log.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
-                                            ) : (
-                                                log.profiles?.full_name?.charAt(0) || 'U'
-                                            )}
+                                            <SafeAvatar
+                                                src={log.profiles?.avatar_url}
+                                                alt={log.profiles?.full_name || 'User'}
+                                                className="w-full h-full rounded-xl"
+                                                size={40}
+                                            />
                                         </div>
                                         <div className="min-w-0">
                                             <div className="text-sm font-bold text-gray-900 dark:text-white truncate">{log.profiles?.full_name}</div>

@@ -9,6 +9,9 @@ import autoTable from 'jspdf-autotable';
 import { useToast } from '../context/ToastContext';
 import { sendEmail } from '../lib/email';
 import digicultLogo from '../assets/digicult.png';
+import { toLocalISOString } from '../utils/date';
+import PayrollPreviewModal from '../components/PayrollPreviewModal';
+import { logAction } from '../lib/logger';
 
 export default function PayrollPage() {
     const { user, profile } = useAuth();
@@ -72,7 +75,12 @@ export default function PayrollPage() {
 
     const fetchPayrolls = async () => {
         try {
-            let query = supabase.from('payroll').select('*, profiles:user_id(full_name, email)').order('year', { ascending: false }).order('month', { ascending: false });
+            let query = supabase
+                .from('payroll')
+                .select('*, profiles:user_id(full_name, email)')
+                .eq('is_current', true) // Only show the latest versions
+                .order('year', { ascending: false })
+                .order('month', { ascending: false });
 
             if (profile?.role !== 'hr') {
                 query = query.eq('user_id', user?.id);
@@ -103,32 +111,22 @@ export default function PayrollPage() {
 
             if (profileError) throw profileError;
 
-            // 1. Delete existing record to ensure clean state (avoids duplicate issues if constraint missing)
-            await supabase
-                .from('payroll')
-                .delete()
-                .eq('user_id', selectedEmployee)
-                .eq('month', month)
-                .eq('year', year);
-
-            // 2. Insert new record
-            const { error } = await supabase
-                .from('payroll')
-                .insert({
+            // 1. Call the atomic RPC to generate payroll (this handles versioning/superseding)
+            const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
+                payroll_records: [{
                     user_id: selectedEmployee,
                     base_salary: parseFloat(baseSalary),
                     hra: parseFloat(hra) || 0,
                     allowances: parseFloat(allowances) || 0,
                     deductions: parseFloat(deductions) || 0,
-                    month: month,
-                    year: year
-                })
-                .select();
+                    metadata: {} // Manual generation doesn't include breakdown unless we add it
+                }],
+                target_month: month,
+                target_year: year
+            });
 
-            if (error) {
-                console.error('Supabase error:', error);
-                throw error;
-            }
+            if (rpcError) throw rpcError;
+            if (!rpcResult?.success) throw new Error(rpcResult?.error || 'Failed to generate payroll');
 
             success('Payroll generated successfully!');
 
@@ -163,7 +161,8 @@ export default function PayrollPage() {
                 .select('*')
                 .eq('user_id', userId)
                 .eq('month', currentMonth)
-                .eq('year', currentYear);
+                .eq('year', currentYear)
+                .eq('is_current', true);
 
             if (fetchError) throw fetchError;
 
@@ -199,38 +198,22 @@ export default function PayrollPage() {
             // => Allowances = Target - Base - HRA + Deductions
             const newAllowances = Math.max(0, targetNetSalary - base - hra + deductions);
 
-            // Manual Upsert to avoid 'ON CONFLICT' constraint issues if migration wasn't run
-            if (payrollRecord && payrollRecord.id) {
-                // Update existing
-                const { error: updateError } = await supabase
-                    .from('payroll')
-                    .update({
-                        allowances: newAllowances,
-                        // Update HRA/Base just in case they were synced weirdly, but usually we keep them.
-                        // Actually, let's keep Base constant as requested.
-                        base_salary: base,
-                        hra: hra,
-                        deductions: deductions
-                    })
-                    .eq('id', payrollRecord.id);
+            // 2. Call the atomic RPC to generate/update payroll (this handles versioning)
+            const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
+                payroll_records: [{
+                    user_id: userId,
+                    base_salary: base,
+                    hra: hra,
+                    deductions: deductions,
+                    allowances: newAllowances,
+                    metadata: payrollRecord?.metadata || {}
+                }],
+                target_month: currentMonth,
+                target_year: currentYear
+            });
 
-                if (updateError) throw updateError;
-            } else {
-                // Insert New
-                const { error: insertError } = await supabase
-                    .from('payroll')
-                    .insert({
-                        user_id: userId,
-                        base_salary: base,
-                        hra: hra,
-                        deductions: deductions,
-                        allowances: newAllowances,
-                        month: currentMonth,
-                        year: currentYear
-                    });
-
-                if (insertError) throw insertError;
-            }
+            if (rpcError) throw rpcError;
+            if (!rpcResult?.success) throw new Error(rpcResult?.error || 'Failed to update salary');
 
             success('Revised salary updated successfully via allowances');
 
@@ -242,6 +225,14 @@ export default function PayrollPage() {
                 const newState = { ...prev };
                 delete newState[userId];
                 return newState;
+            });
+
+            // Audit Log
+            await logAction(user?.id || '', 'SALARY_UPDATED', 'payroll', {
+                target_user_id: userId,
+                new_net_salary: targetNetSalary,
+                mode: 'allowances_adjustment',
+                timestamp: new Date().toISOString()
             });
         } catch (error: any) {
             console.error('Error updating salary:', error);
@@ -267,34 +258,35 @@ export default function PayrollPage() {
 
             if (profileError) throw profileError;
 
-            // 2. Reset Payroll Record (Revised Salary/Base/HRA)
-            // Find existing payroll
-            const { data: records } = await supabase
-                .from('payroll')
-                .select('id')
-                .eq('user_id', userId)
-                .eq('month', currentMonth)
-                .eq('year', currentYear);
+            // 2. Reset Payroll Record via RPC (this handles versioning)
+            const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
+                payroll_records: [{
+                    user_id: userId,
+                    base_salary: 0,
+                    hra: 0,
+                    allowances: 0,
+                    deductions: 0,
+                    metadata: {}
+                }],
+                target_month: currentMonth,
+                target_year: currentYear
+            });
 
-            if (records && records.length > 0) {
-                const { error: payrollError } = await supabase
-                    .from('payroll')
-                    .update({
-                        base_salary: 0,
-                        hra: 0,
-                        allowances: 0,
-                        deductions: 0
-                    })
-                    .eq('id', records[0].id);
-
-                if (payrollError) throw payrollError;
-            }
+            if (rpcError) throw rpcError;
+            if (!rpcResult?.success) throw new Error(rpcResult?.error || 'Failed to reset values');
 
             // 3. Clear local state
             setEditedSalaries(prev => {
                 const newState = { ...prev };
                 delete newState[userId];
                 return newState;
+            });
+
+            // Audit Log
+            await logAction(user?.id || '', 'SALARY_RESET', 'payroll', {
+                target_user_id: userId,
+                reason: 'Manual Reset to 0',
+                timestamp: new Date().toISOString()
             });
 
             success('Salary data completely reset to 0');
@@ -317,37 +309,15 @@ export default function PayrollPage() {
         return p.base_salary + p.hra + p.allowances - p.deductions;
     };
 
-    const handleGenerateAll = async () => {
-        // Fetch settings first to confirm valid cycle
-        let startDay = 26;
-        let endDay = 25;
+    const [previewData, setPreviewData] = useState<any>(null);
+    const [showPreviewModal, setShowPreviewModal] = useState(false);
 
-        let enableTax = true;
-        let paidLeavesPerMonth = 1;
-
-        // Optimistically check settings (async check inside to avoid blocking UI render)
-        const { data: settings } = await supabase
-            .from('system_settings')
-            .select('key, value')
-            .in('key', ['payroll_start_day', 'payroll_end_day', 'payroll_tax_enabled', 'payroll_paid_leaves_per_month']);
-
-        if (settings) {
-            const s = settings.find(x => x.key === 'payroll_start_day');
-            const e = settings.find(x => x.key === 'payroll_end_day');
-            const tax = settings.find(x => x.key === 'payroll_tax_enabled');
-            const leaves = settings.find(x => x.key === 'payroll_paid_leaves_per_month');
-
-            if (s) startDay = Number(s.value);
-            if (e) endDay = Number(e.value);
-            if (tax) enableTax = tax.value === 'true';
-            if (leaves) paidLeavesPerMonth = Number(leaves.value);
-        }
-
-        if (!window.confirm(`Are you sure you want to generate payroll for ALL employees for ${month}/${year}? This uses the configured cycle: ${startDay}th of previous month to ${endDay}th of selected month.`)) return;
+    const handlePreparePayroll = async () => {
+        if (!window.confirm(`Are you sure you want to generate payroll for ALL employees for ${month}/${year}?`)) return;
 
         setGeneratingAll(true);
         try {
-            // 0. Pre-check for PENDING requests (Guardrail)
+            // 1. Check Pending Items
             const { count: pendingLeaves, error: pendingLeaveError } = await supabase
                 .from('leave_requests')
                 .select('*', { count: 'exact', head: true })
@@ -367,24 +337,45 @@ export default function PayrollPage() {
                 return;
             }
 
-            // 1. Fetch all employees
-            const { data: employees, error: empError } = await supabase
+            // 2. Fetch Employees
+            const { data: employeesData, error: empError } = await supabase
                 .from('profiles')
-                .select('*');
+                .select('*')
+                .is('deleted_at', null);
 
             if (empError) throw empError;
 
-            // 2. Identify Cycle Dates 
-            // Note: Month state is 1-based (1=Jan, 12=Dec).
-            // Cycle Start: startDay of Previous Month
-            // Cycle End: endDay of Current Month
+            // 3. Fetch Settings
+            let startDay = 26;
+            let endDay = 25;
+            let enableTax = true;
+            let paidLeavesPerMonth = 1;
+
+            const { data: settings } = await supabase
+                .from('system_settings')
+                .select('key, value')
+                .in('key', ['payroll_start_day', 'payroll_end_day', 'payroll_tax_enabled', 'payroll_paid_leaves_per_month']);
+
+            if (settings) {
+                const s = settings.find(x => x.key === 'payroll_start_day');
+                const e = settings.find(x => x.key === 'payroll_end_day');
+                const t = settings.find(x => x.key === 'payroll_tax_enabled');
+                const l = settings.find(x => x.key === 'payroll_paid_leaves_per_month');
+
+                if (s) startDay = Number(s.value);
+                if (e) endDay = Number(e.value);
+                if (t) enableTax = t.value === 'true';
+                if (l) paidLeavesPerMonth = Number(l.value);
+            }
+
+            // 4. Identify Cycle Dates
+            // Logic: Payroll for "January 2024" usually covers Dec 26, 2023 to Jan 25, 2024
             const prevMonthDate = new Date(year, month - 2, startDay);
             const currMonthDate = new Date(year, month - 1, endDay);
+            const startStr = toLocalISOString(prevMonthDate);
+            const endStr = toLocalISOString(currMonthDate);
 
-            const startStr = prevMonthDate.toISOString().split('T')[0];
-            const endStr = currMonthDate.toISOString().split('T')[0];
-
-            // 3. Fetch holidays in cycle
+            // 5. Fetch Holidays
             const { data: holidays, error: holError } = await supabase
                 .from('leave_calendar_events')
                 .select('*')
@@ -393,18 +384,13 @@ export default function PayrollPage() {
 
             if (holError) throw holError;
 
-            // 4. Calculate payroll for each employee (NO DATABASE WRITES YET)
-            const payrollRecords: any[] = [];
-            const emailsToSend: any[] = [];
+            // 6. Calculate Payroll
+            const calculatedRecords: any[] = [];
 
-            console.log('Calculating payroll for', employees?.length, 'employees');
-
-            for (const emp of employees || []) {
+            for (const emp of employeesData || []) {
                 const baseSalary = emp.salary || 0;
-                if (baseSalary === 0) {
-                    console.log(`Processing 0 salary for ${emp.full_name}`);
-                }
-                // Fetch attendance in cycle
+
+                // Fetch Attendance
                 const { data: attendance } = await supabase
                     .from('attendance_logs')
                     .select('work_date, mode, status')
@@ -412,29 +398,27 @@ export default function PayrollPage() {
                     .gte('work_date', startStr)
                     .lte('work_date', endStr);
 
-                // Fetch approved leaves overlapping cycle
+                // Fetch Leaves
                 const { data: leaves } = await supabase
                     .from('leave_requests')
                     .select('start_date, end_date')
                     .eq('user_id', emp.id)
                     .eq('status', 'approved')
-                    .or(`start_date.lte.${endStr},end_date.gte.${startStr}`);
+                    .lte('start_date', endStr)
+                    .gte('end_date', startStr);
 
-                // Calculate Totals within Cycle
+                // Calculations
                 const totalDaysInCycle = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
                 const holidayCount = holidays?.length || 0;
 
-                // Present Days
                 const presentDays = new Set(attendance?.filter((a: any) =>
                     a.mode === 'onsite' || ((a.mode === 'wfh' || a.mode === 'remote') && a.status === 'approved')
                 ).map((a: any) => a.work_date)).size;
 
-                // Calculate Approved Leave Days falling in this cycle
                 let totalApprovedLeaveDays = 0;
                 leaves?.forEach((leave: any) => {
                     const start = new Date(leave.start_date);
                     const end = new Date(leave.end_date);
-
                     const effectiveStart = start < prevMonthDate ? prevMonthDate : start;
                     const effectiveEnd = end > currMonthDate ? currMonthDate : end;
 
@@ -445,172 +429,155 @@ export default function PayrollPage() {
                     }
                 });
 
-                // Rule: Paid Leaves allowed per month (from settings)
                 const paidLeaveQuota = paidLeavesPerMonth >= 0 ? paidLeavesPerMonth : 1;
                 const paidLeavesUsed = Math.min(totalApprovedLeaveDays, paidLeaveQuota);
 
-                // Calculate Weekends in Cycle
                 let weekends = 0;
                 const iterDate = new Date(prevMonthDate);
-
                 while (iterDate <= currMonthDate) {
                     const day = iterDate.getDay();
                     if (day === 0 || day === 6) weekends++;
                     iterDate.setDate(iterDate.getDate() + 1);
                 }
 
-                // Total Paid Days Calculation
                 let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
                 if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
 
-                // LOP Calculation
                 const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-                const perDaySalary = Number(baseSalary) / 30;
-
-                // LOP Deduction
+                const perDaySalary = Number(baseSalary) / 30; // Standard 30 days
                 let deductions = Math.round(lopDays * perDaySalary);
 
-                // Tax Calculation
                 let taxAmount = 0;
                 if (enableTax) {
                     const salaryNum = Number(baseSalary);
                     if (salaryNum > 100000) taxAmount = salaryNum * 0.15;
                     else if (salaryNum > 50000) taxAmount = salaryNum * 0.10;
                     else if (salaryNum > 25000) taxAmount = salaryNum * 0.05;
-
                     deductions += taxAmount;
                 }
 
-                // Metadata for Payslip Details
-                const metadata = {
-                    lop_days: lopDays,
-                    lop_amount: Math.round(lopDays * perDaySalary),
-                    tax_amount: taxAmount
-                };
+                const netSalary = baseSalary - deductions;
 
-                // Add to batch (NO DATABASE WRITE YET)
-                payrollRecords.push({
+                calculatedRecords.push({
                     user_id: emp.id,
                     base_salary: baseSalary,
                     hra: 0,
                     allowances: 0,
                     deductions: deductions,
-                    metadata: metadata
+                    net_salary: netSalary,
+                    metadata: {
+                        lop_days: lopDays,
+                        lop_amount: Math.round(lopDays * perDaySalary),
+                        tax_amount: taxAmount,
+                        paid_days: paidDays,
+                        total_days: totalDaysInCycle,
+                        present_days: presentDays,
+                        leave_days: totalApprovedLeaveDays
+                    },
+                    profiles: emp
                 });
-
-                // Queue for email (only sent after successful commit)
-                if (emp.email) {
-                    emailsToSend.push({
-                        to: emp.email,
-                        name: emp.full_name,
-                        monthName: getMonthName(month),
-                        year: year,
-                        base: baseSalary,
-                        hra: 0,
-                        allowances: 0,
-                        deductions: deductions,
-                        net: baseSalary + 0 + 0 - deductions,
-                        details: metadata
-                    });
-                }
             }
 
-            // 5. ATOMIC COMMIT: Call RPC to insert all records in a single transaction
-            console.log(`Committing ${payrollRecords.length} payroll records atomically...`);
+            setPreviewData({
+                employeeCount: calculatedRecords.length,
+                totalPayout: calculatedRecords.reduce((sum, rec) => sum + rec.net_salary, 0),
+                month: new Date(year, month - 1).toLocaleString('default', { month: 'long' }),
+                year,
+                records: calculatedRecords
+            });
+            setShowPreviewModal(true);
+
+        } catch (error: any) {
+            console.error('Error preparing payroll:', error);
+            toastError(`Error: ${error.message}`);
+        } finally {
+            setGeneratingAll(false);
+        }
+    };
+
+    const handleConfirmGenerate = async () => {
+        if (!previewData || !previewData.records) return;
+
+        setGeneratingAll(true);
+        try {
+            const payrollRecordsForDb = previewData.records.map((rec: any) => ({
+                user_id: rec.user_id,
+                base_salary: rec.base_salary,
+                hra: rec.hra,
+                allowances: rec.allowances,
+                deductions: rec.deductions,
+                metadata: rec.metadata
+            }));
 
             const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
-                payroll_records: payrollRecords,
+                payroll_records: payrollRecordsForDb,
                 target_month: month,
                 target_year: year
             });
 
-            if (rpcError) {
-                throw new Error(`Transaction failed: ${rpcError.message}. No records were saved.`);
-            }
+            if (rpcError) throw new Error(`Transaction failed: ${rpcError.message}`);
+            if (!rpcResult?.success) throw new Error(`Transaction rolled back: ${rpcResult?.error || 'Unknown error'}`);
 
-            // Check RPC result for success
-            if (!rpcResult?.success) {
-                throw new Error(`Transaction rolled back: ${rpcResult?.error || 'Unknown error'}. No records were saved.`);
-            }
+            success(`Successfully generated payroll for ${rpcResult.processed_count} employees.`);
+            setShowPreviewModal(false);
 
-            const processedCount = rpcResult.processed_count || 0;
+            // Audit Log
+            await logAction(user?.id || '', 'PAYROLL_GENERATED', 'payroll', {
+                month,
+                year,
+                count: rpcResult.processed_count,
+                total_payout: previewData.totalPayout,
+                timestamp: new Date().toISOString()
+            });
 
-            if (processedCount === 0) {
-                toastError(`No eligible employees found for payroll generation.`);
-            } else {
-                success(`Successfully generated payroll for ${processedCount} employees (atomic transaction).`);
-            }
-
-            // 6. Send Emails (only after successful commit)
-            if (emailsToSend.length > 0 && processedCount > 0) {
-                success(`Sending ${emailsToSend.length} payslip emails...`);
-
-                await Promise.all(emailsToSend.map(async (data) => {
-                    const { to, name, monthName, year: pYear, base, hra, allowances, deductions, net, details } = data;
-
-                    const html = `
-                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-                            <h2 style="color: #2563eb;">Payslip for ${monthName} ${pYear}</h2>
-                            <p>Hi ${name},</p>
-                            <p>Your payslip for <strong>${monthName} ${pYear}</strong> has been generated.</p>
-                            
-                            <table style="width: 100%; border-collapse: collapse; margin-top: 20px; border: 1px solid #ddd;">
-                                <tr style="background-color: #f8fafc;">
-                                    <th style="text-align: left; padding: 12px; border-bottom: 1px solid #ddd;">Description</th>
-                                    <th style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">Amount</th>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 12px; border-bottom: 1px solid #ddd;">Base Salary</td>
-                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">₹${base.toLocaleString('en-IN')}</td>
-                                </tr>
-                                ${hra > 0 ? `
-                                <tr>
-                                    <td style="padding: 12px; border-bottom: 1px solid #ddd;">HRA</td>
-                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">₹${hra.toLocaleString('en-IN')}</td>
-                                </tr>` : ''}
-                                ${allowances > 0 ? `
-                                <tr>
-                                    <td style="padding: 12px; border-bottom: 1px solid #ddd;">Allowances</td>
-                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd;">₹${allowances.toLocaleString('en-IN')}</td>
-                                </tr>` : ''}
-                                <tr>
-                                    <td style="padding: 12px; border-bottom: 1px solid #ddd; color: #dc2626;">Deductions</td>
-                                    <td style="text-align: right; padding: 12px; border-bottom: 1px solid #ddd; color: #dc2626;">-₹${deductions.toLocaleString('en-IN')}</td>
-                                </tr>
-                                <tr style="background-color: #eff6ff; font-weight: bold;">
-                                    <td style="padding: 12px;">Net Salary</td>
-                                    <td style="text-align: right; padding: 12px; color: #2563eb;">₹${net.toLocaleString('en-IN')}</td>
-                                </tr>
-                            </table>
-
-                             ${details && details.lop_days > 0 ? `
-                                <p style="margin-top: 20px; font-size: 14px; color: #666;">
-                                    * Includes ${details.lop_days} days Loss of Pay (₹${details.lop_amount})
-                                </p>
-                            ` : ''}
-
-                            <p style="margin-top: 30px; font-size: 14px; color: #666;">
-                                Regards,<br>
-                                HR Team
-                            </p>
-                        </div>
-                    `;
-
-                    await sendEmail({
-                        to,
-                        subject: `Payslip: ${monthName} ${pYear}`,
-                        html
-                    });
+            // Email Sending
+            const emailsToSend = previewData.records
+                .filter((rec: any) => rec.profiles?.email)
+                .map((rec: any) => ({
+                    to: rec.profiles.email,
+                    name: rec.profiles.full_name,
+                    monthName: previewData.month,
+                    year: year,
+                    base: rec.base_salary,
+                    deductions: rec.deductions,
+                    net: rec.net_salary
                 }));
 
-                success('All payslips sent successfully.');
+            if (emailsToSend.length > 0) {
+                let sentCount = 0;
+                let failedCount = 0;
+                for (const emailData of emailsToSend) {
+                    try {
+                        const html = `
+                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
+                                <h2 style="color: #2563eb;">Payslip for ${emailData.monthName} ${emailData.year}</h2>
+                                <p>Hi ${emailData.name},</p>
+                                <p>Your payslip has been generated.</p>
+                                <p>Net Salary: <strong>₹${emailData.net.toLocaleString('en-IN')}</strong></p>
+                                <p style="margin-top: 20px; font-size: 14px; color: #666;">Regards,<br>HR Team</p>
+                            </div>
+                        `;
+                        await sendEmail({
+                            to: emailData.to,
+                            subject: `Payslip: ${emailData.monthName} ${emailData.year}`,
+                            html
+                        });
+                        sentCount++;
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    } catch (err) {
+                        console.error(`Failed email to ${emailData.to}`, err);
+                        failedCount++;
+                    }
+                }
+                if (failedCount > 0) toastError(`Failed to send ${failedCount} emails.`);
+                else success(`Sent ${sentCount} emails.`);
             }
 
             fetchPayrolls();
 
         } catch (error: any) {
-            console.error('Error generating all payrolls:', error);
-            toastError(`Error: ${error.message}`);
+            console.error('Error in commit:', error);
+            toastError(error.message);
         } finally {
             setGeneratingAll(false);
         }
@@ -945,12 +912,18 @@ export default function PayrollPage() {
         try {
             const { error } = await supabase
                 .from('payroll')
-                .delete()
+                .update({ is_current: false, superseded_at: new Date().toISOString() })
                 .eq('id', id);
 
             if (error) throw error;
             success('Payroll record deleted successfully');
             setPayrolls(payrolls.filter(p => p.id !== id));
+
+            // Audit Log
+            await logAction(user?.id || '', 'PAYROLL_DELETED', 'payroll', {
+                record_id: id,
+                timestamp: new Date().toISOString()
+            });
         } catch (error: any) {
             console.error('Error deleting payroll:', error);
             toastError('Failed to delete payroll record');
@@ -971,7 +944,7 @@ export default function PayrollPage() {
                             Manage Salaries
                         </button>
                         <button
-                            onClick={handleGenerateAll}
+                            onClick={handlePreparePayroll}
                             disabled={generatingAll}
                             className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
                         >
@@ -1266,6 +1239,14 @@ export default function PayrollPage() {
                     </div>
                 </div>
             )}
+
+            <PayrollPreviewModal
+                isOpen={showPreviewModal}
+                onClose={() => setShowPreviewModal(false)}
+                onConfirm={handleConfirmGenerate}
+                data={previewData}
+                isGenerating={generatingAll}
+            />
         </div>
     );
 }

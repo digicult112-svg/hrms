@@ -9,6 +9,7 @@ import DeleteEmployeeDialog from '../components/DeleteEmployeeDialog';
 import EmployeeHistoryModal from '../components/EmployeeHistoryModal';
 import ViewEmployeeDetailsModal from '../components/ViewEmployeeDetailsModal';
 import { Eye } from 'lucide-react';
+import SafeAvatar from '../components/SafeAvatar';
 
 export default function EmployeeList() {
     const { profile } = useAuth();
@@ -207,11 +208,13 @@ export default function EmployeeList() {
                         <div key={employee.id} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-800 hover:border-blue-200 dark:hover:border-blue-800/50 transition-colors">
                             <div className="flex items-start justify-between mb-4">
                                 <div className="flex items-center">
-                                    <div className={`h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg border ${employee.deleted_at
-                                        ? 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800'
-                                        : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800/30'
-                                        }`}>
-                                        {employee.full_name?.[0]?.toUpperCase()}
+                                    <div className="h-12 w-12 rounded-full flex items-center justify-center font-bold text-lg overflow-hidden">
+                                        <SafeAvatar
+                                            src={employee.avatar_url}
+                                            alt={employee.full_name || 'User'}
+                                            className="w-full h-full"
+                                            size={48}
+                                        />
                                     </div>
                                     <div className="ml-4">
                                         <h3 className={`font-semibold ${employee.deleted_at ? 'text-gray-500 dark:text-gray-400 line-through' : 'text-gray-900 dark:text-white'}`}>

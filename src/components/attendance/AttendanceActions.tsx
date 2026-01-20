@@ -69,10 +69,14 @@ export const AttendanceActions = ({
                         <div className="animate-in slide-in-from-top-4 fade-in">
                             <textarea
                                 value={wfhReason}
+                                maxLength={300}
                                 onChange={(e) => setWfhReason(e.target.value)}
                                 placeholder="Reason for working from home..."
                                 className="w-full p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-gray-900 dark:focus:ring-gray-600 focus:border-transparent transition-all placeholder:text-gray-400 dark:placeholder:text-gray-500 min-h-[100px] resize-none"
                             />
+                            <div className="text-right text-xs text-gray-400 mt-1 px-1">
+                                {wfhReason.length}/300
+                            </div>
                         </div>
                     )}
 

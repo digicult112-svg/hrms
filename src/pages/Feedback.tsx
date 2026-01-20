@@ -54,12 +54,16 @@ export default function Feedback() {
                         <textarea
                             id="message"
                             value={message}
+                            maxLength={1000}
                             onChange={(e) => setMessage(e.target.value)}
                             placeholder="Type your message here..."
                             rows={6}
                             className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all resize-none"
                             required
                         />
+                        <div className="text-right text-xs text-gray-400 mt-1">
+                            {message.length}/1000
+                        </div>
                     </div>
 
                     <div className="flex items-center justify-between pt-2">

@@ -8,6 +8,7 @@ import AttendanceHistory from '../components/AttendanceHistory';
 import ExportAttendanceModal from '../components/ExportAttendanceModal';
 import AbsenceCalendar from '../components/AbsenceCalendar';
 import { Calendar as CalendarIcon, List } from 'lucide-react';
+import { toLocalISOString } from '../utils/date';
 
 export default function AttendancePage() {
     const { user, profile } = useAuth();
@@ -24,6 +25,7 @@ export default function AttendancePage() {
 
     // Stats
     const [weeklyHours, setWeeklyHours] = useState<string>('0.0');
+    const [weeklyChange, setWeeklyChange] = useState<{ value: string; type: 'increase' | 'decrease' | 'neutral' }>({ value: '0', type: 'neutral' });
 
     // Export Modal
     const [showExportModal, setShowExportModal] = useState(false);
@@ -48,13 +50,18 @@ export default function AttendancePage() {
     const fetchWeeklySummary = async () => {
         try {
             const today = new Date();
-            const lastWeek = new Date(today);
-            lastWeek.setDate(today.getDate() - 7);
+            const startOfCurrentWeek = new Date(today);
+            startOfCurrentWeek.setDate(today.getDate() - 6); // Last 7 days including today
+
+            const startOfLastWeek = new Date(startOfCurrentWeek);
+            startOfLastWeek.setDate(startOfCurrentWeek.getDate() - 7); // The 7 days before that
+            const endOfLastWeek = new Date(startOfCurrentWeek);
+            endOfLastWeek.setDate(startOfCurrentWeek.getDate() - 1);
 
             let query = supabase
                 .from('attendance_logs')
-                .select('clock_in, clock_out')
-                .gte('work_date', lastWeek.toISOString().split('T')[0])
+                .select('clock_in, clock_out, work_date')
+                .gte('work_date', startOfLastWeek.toISOString().split('T')[0])
                 .lte('work_date', today.toISOString().split('T')[0]);
 
             if (viewMode === 'my') {
@@ -64,17 +71,40 @@ export default function AttendancePage() {
             const { data, error } = await query;
             if (error) throw error;
 
-            let totalMinutes = 0;
+            let currentWeekMinutes = 0;
+            let lastWeekMinutes = 0;
+
+            const currentWeekStartStr = startOfCurrentWeek.toISOString().split('T')[0];
+
             data?.forEach((log: any) => {
                 if (log.clock_in && log.clock_out) {
-                    const start = new Date(log.clock_in).getTime();
-                    const end = new Date(log.clock_out).getTime();
-                    totalMinutes += (end - start) / 60000;
+                    const duration = (new Date(log.clock_out).getTime() - new Date(log.clock_in).getTime()) / 60000;
+                    if (log.work_date >= currentWeekStartStr) {
+                        currentWeekMinutes += duration;
+                    } else {
+                        lastWeekMinutes += duration;
+                    }
                 }
             });
 
-            const hours = (totalMinutes / 60).toFixed(1);
-            setWeeklyHours(hours);
+            const currentHours = currentWeekMinutes / 60;
+            const lastHours = lastWeekMinutes / 60;
+
+            setWeeklyHours(currentHours.toFixed(1));
+
+            // Calculate Percentage Change
+            if (lastHours === 0) {
+                setWeeklyChange({
+                    value: currentHours > 0 ? '100' : '0',
+                    type: currentHours > 0 ? 'increase' : 'neutral'
+                });
+            } else {
+                const percentChange = ((currentHours - lastHours) / lastHours) * 100;
+                setWeeklyChange({
+                    value: Math.abs(percentChange).toFixed(0),
+                    type: percentChange > 0 ? 'increase' : percentChange < 0 ? 'decrease' : 'neutral'
+                });
+            }
 
         } catch (error) {
             console.error('Error fetching weekly summary:', error);
@@ -107,11 +137,11 @@ export default function AttendancePage() {
             }
 
             if (recordTab === 'today') {
-                const today = new Date().toISOString().split('T')[0];
+                const today = toLocalISOString(new Date());
                 query = query.eq('work_date', today);
             } else {
                 // History tab
-                const today = new Date().toISOString().split('T')[0];
+                const today = toLocalISOString(new Date());
                 query = query.neq('work_date', today);
 
                 if (dateFilter) {
@@ -231,9 +261,20 @@ export default function AttendancePage() {
                                 <h3 className="text-gray-500 dark:text-gray-400 font-medium mb-1 uppercase tracking-wider text-xs">Weekly Summary</h3>
                                 <div className="text-5xl font-bold mb-6 tracking-tight text-gray-900 dark:text-white">{weeklyHours}<span className="text-2xl text-gray-400 dark:text-gray-500 font-medium">h</span></div>
                                 <div className="flex items-center gap-3">
-                                    <span className="bg-green-500/10 dark:bg-green-500/20 text-green-600 dark:text-green-400 px-3 py-1 rounded-full text-xs font-bold border border-green-500/10 dark:border-green-500/20 flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500 dark:bg-green-400"></span>
-                                        +12%
+                                    <span className={`px-3 py-1 rounded-full text-xs font-bold border flex items-center gap-1 ${weeklyChange.type === 'increase'
+                                        ? 'bg-green-500/10 dark:bg-green-500/20 text-green-600 dark:text-green-400 border-green-500/10 dark:border-green-500/20'
+                                        : weeklyChange.type === 'decrease'
+                                            ? 'bg-red-500/10 dark:bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/10 dark:border-red-500/20'
+                                            : 'bg-gray-500/10 dark:bg-gray-500/20 text-gray-600 dark:text-gray-400 border-gray-500/10 dark:border-gray-500/20'
+                                        }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${weeklyChange.type === 'increase'
+                                            ? 'bg-green-500 dark:bg-green-400'
+                                            : weeklyChange.type === 'decrease'
+                                                ? 'bg-red-500 dark:bg-red-400'
+                                                : 'bg-gray-500 dark:bg-gray-400'
+                                            }`}></span>
+                                        {weeklyChange.type === 'increase' ? '+' : weeklyChange.type === 'decrease' ? '-' : ''}
+                                        {weeklyChange.value}%
                                     </span>
                                     <span className="text-sm text-gray-500 font-medium">vs last week</span>
                                 </div>

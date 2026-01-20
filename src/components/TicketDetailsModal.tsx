@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { notifyUser } from '../lib/notifications';
 import { X, Send, MessageSquare, Loader2, CheckCircle, RotateCw } from 'lucide-react';
+import SafeAvatar from './SafeAvatar';
 import { useAuth } from '../context/AuthContext';
 import type { Ticket, TicketComment, TicketStatus } from '../types';
 import { format } from 'date-fns';
@@ -210,15 +211,12 @@ export default function TicketDetailsModal({ ticket, isOpen, onClose, onUpdate }
                             ) : (
                                 comments.map((comment) => (
                                     <div key={comment.id} className={`flex gap-3 ${comment.profiles?.role === 'hr' ? 'flex-row-reverse' : ''}`}>
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${comment.profiles?.role === 'hr' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' : 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'}`}>
-                                            {comment.profiles?.avatar_url ? (
-                                                <img src={comment.profiles.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover" />
-                                            ) : (
-                                                <span className="text-xs font-bold">
-                                                    {comment.profiles?.full_name?.charAt(0) || '?'}
-                                                </span>
-                                            )}
-                                        </div>
+                                        <SafeAvatar
+                                            src={comment.profiles?.avatar_url}
+                                            alt={comment.profiles?.full_name || 'User'}
+                                            className="w-8 h-8 flex-shrink-0"
+                                            size={32}
+                                        />
                                         <div className={`flex-1 rounded-2xl p-4 shadow-sm relative ${comment.profiles?.role === 'hr'
                                             ? 'bg-purple-50 dark:bg-purple-900/10 border border-purple-100 dark:border-purple-900/20 rounded-tr-none'
                                             : 'bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-tl-none'

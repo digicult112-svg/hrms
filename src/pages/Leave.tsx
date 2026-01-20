@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { notifyHR, notifyUser } from '../lib/notifications';
+import { logAction } from '../lib/logger';
 import type { LeaveCalendarEvent } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { CheckCircle, XCircle, Plus, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import SafeAvatar from '../components/SafeAvatar';
 
 export default function LeavePage() {
     const { user, profile } = useAuth();
@@ -109,6 +111,13 @@ export default function LeavePage() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // 🛡️ Date Validation: End date cannot be before start date
+        if (new Date(endDate) < new Date(startDate)) {
+            alert('End date cannot be earlier than start date. Please check your selection.');
+            return;
+        }
+
         setSubmitting(true);
         try {
             const { error } = await supabase.from('leave_requests').insert({
@@ -199,6 +208,17 @@ export default function LeavePage() {
             }
 
             console.log('Update successful:', data);
+
+            // Audit Log
+            if (user?.id) {
+                await logAction(user.id, 'LEAVE_STATUS_UPDATED', 'leave_requests', {
+                    request_id: id,
+                    new_status: status,
+                    employee_id: leaveRequest?.user_id,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
             alert(`Leave request ${status} successfully!`);
             fetchLeaves();
         } catch (error: any) {
@@ -253,6 +273,7 @@ export default function LeavePage() {
                                 <input
                                     type="date"
                                     required
+                                    min={startDate} // 🛡️ Prevent selecting date before start
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
                                     className="block w-full rounded-lg border-gray-300 dark:border-gray-700 md:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
@@ -264,11 +285,15 @@ export default function LeavePage() {
                             <textarea
                                 required
                                 rows={4}
+                                maxLength={500}
                                 value={reason}
                                 onChange={(e) => setReason(e.target.value)}
                                 className="block w-full rounded-lg border-gray-300 dark:border-gray-700 md:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
                                 placeholder="Please describe the reason for your leave..."
                             />
+                            <div className="text-right text-xs text-gray-400 mt-1">
+                                {reason.length}/500
+                            </div>
                         </div>
                         <div className="flex justify-end">
                             <button
@@ -307,71 +332,81 @@ export default function LeavePage() {
                                         <td colSpan={5} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">No leave requests found</td>
                                     </tr>
                                 ) : (
-                                    leaves.map((leave) => (
-                                        <tr key={leave.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                            {profile?.role === 'hr' && (
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center">
-                                                        <div className="h-8 w-8 rounded-full bg-purple-50 dark:bg-purple-900/20 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold border border-purple-100 dark:border-purple-800 mr-3 overflow-hidden">
-                                                            {leave.profiles?.avatar_url ? (
-                                                                <img src={leave.profiles.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-                                                            ) : (
-                                                                leave.profiles?.full_name?.charAt(0) || 'U'
-                                                            )}
-                                                        </div>
-                                                        <div>
-                                                            <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                                                {leave.profiles?.full_name || 'Unknown'}
+                                    leaves.map((leave) => {
+                                        // SLA Logic
+                                        const isPending = leave.status === 'pending';
+                                        const daysPending = isPending ? Math.floor((new Date().getTime() - new Date(leave.created_at).getTime()) / (1000 * 3600 * 24)) : 0;
+                                        const slaClass = isPending && daysPending > 5
+                                            ? 'bg-red-50 dark:bg-red-900/10 border-l-4 border-red-500' // Critical > 5 days
+                                            : isPending && daysPending > 3
+                                                ? 'bg-yellow-50 dark:bg-yellow-900/10 border-l-4 border-yellow-500' // Warning > 3 days
+                                                : 'hover:bg-gray-50 dark:hover:bg-gray-800/50';
+
+                                        return (
+                                            <tr key={leave.id} className={`${slaClass} transition-colors border-b border-gray-100 dark:border-gray-800`}>
+                                                {profile?.role === 'hr' && (
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center">
+                                                            <SafeAvatar
+                                                                src={leave.profiles?.avatar_url}
+                                                                alt={leave.profiles?.full_name || 'User'}
+                                                                className="w-8 h-8 mr-3"
+                                                                size={32}
+                                                            />
+                                                            <div>
+                                                                <div className="text-sm font-medium text-gray-900 dark:text-white">
+                                                                    {leave.profiles?.full_name || 'Unknown'}
+                                                                </div>
+                                                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                                                    {leave.profiles?.email}
+                                                                </div>
                                                             </div>
-                                                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                                                                {leave.profiles?.email}
-                                                            </div>
                                                         </div>
+                                                    </td>
+                                                )}
+                                                <td className="px-6 py-4 text-gray-900 dark:text-gray-100">
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium">{leave.start_date}</span>
+                                                        <span className="text-gray-500 dark:text-gray-400 text-xs">to {leave.end_date}</span>
                                                     </div>
                                                 </td>
-                                            )}
-                                            <td className="px-6 py-4 text-gray-900 dark:text-gray-100">
-                                                <div className="flex flex-col">
-                                                    <span className="font-medium">{leave.start_date}</span>
-                                                    <span className="text-gray-500 dark:text-gray-400 text-xs">to {leave.end_date}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-gray-700 dark:text-gray-300 max-w-xs truncate">{leave.reason}</td>
-                                            <td className="px-6 py-4">
-                                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${leave.status === 'approved' ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300' :
-                                                    leave.status === 'rejected' ? 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300' :
-                                                        'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300'
-                                                    }`}>
-                                                    {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
-                                                </span>
-                                            </td>
-                                            <td className="px-6 py-4 text-gray-500 dark:text-gray-400 text-sm">
-                                                {new Date(leave.created_at).toLocaleDateString()}
-                                            </td>
-                                            {profile?.role === 'hr' && (
+                                                <td className="px-6 py-4 text-gray-700 dark:text-gray-300 max-w-xs truncate">{leave.reason}</td>
                                                 <td className="px-6 py-4">
-                                                    {leave.status === 'pending' && (
-                                                        <div className="flex space-x-2">
-                                                            <button
-                                                                onClick={() => handleStatusUpdate(leave.id, 'approved')}
-                                                                className="text-green-600 hover:text-green-800"
-                                                                title="Approve"
-                                                            >
-                                                                <CheckCircle className="w-5 h-5" />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => handleStatusUpdate(leave.id, 'rejected')}
-                                                                className="text-red-600 hover:text-red-800"
-                                                                title="Reject"
-                                                            >
-                                                                <XCircle className="w-5 h-5" />
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${leave.status === 'approved' ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300' :
+                                                        leave.status === 'rejected' ? 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300' :
+                                                            'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300'
+                                                        }`}>
+                                                        {leave.status.charAt(0).toUpperCase() + leave.status.slice(1)}
+                                                    </span>
                                                 </td>
-                                            )}
-                                        </tr>
-                                    ))
+                                                <td className="px-6 py-4 text-gray-500 dark:text-gray-400 text-sm">
+                                                    {new Date(leave.created_at).toLocaleDateString()}
+                                                </td>
+                                                {profile?.role === 'hr' && (
+                                                    <td className="px-6 py-4">
+                                                        {leave.status === 'pending' && (
+                                                            <div className="flex space-x-2">
+                                                                <button
+                                                                    onClick={() => handleStatusUpdate(leave.id, 'approved')}
+                                                                    className="text-green-600 hover:text-green-800"
+                                                                    title="Approve"
+                                                                >
+                                                                    <CheckCircle className="w-5 h-5" />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => handleStatusUpdate(leave.id, 'rejected')}
+                                                                    className="text-red-600 hover:text-red-800"
+                                                                    title="Reject"
+                                                                >
+                                                                    <XCircle className="w-5 h-5" />
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>

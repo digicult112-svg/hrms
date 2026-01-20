@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { X, Loader2, GraduationCap, Briefcase, MapPin, Building2, User } from 'lucide-react';
 import type { Profile, OfficeLocation } from '../types';
+import { logAction } from '../lib/logger';
+import { useAuth } from '../context/AuthContext';
 
 interface EditEmployeeModalProps {
     isOpen: boolean;
@@ -11,6 +13,7 @@ interface EditEmployeeModalProps {
 }
 
 export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee }: EditEmployeeModalProps) {
+    const { user } = useAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [locations, setLocations] = useState<OfficeLocation[]>([]);
@@ -73,6 +76,15 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
 
             onSuccess();
             onClose();
+
+            // Audit Log
+            if (user?.id) {
+                await logAction(user.id, 'PROFILE_UPDATED', 'profiles', {
+                    target_user_id: employee.id,
+                    updated_fields: Object.keys(formData),
+                    timestamp: new Date().toISOString()
+                });
+            }
         } catch (err: any) {
             console.error('Error updating employee:', err);
             setError(err.message || 'Failed to update employee');

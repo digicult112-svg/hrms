@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { notifyUser } from '../lib/notifications';
 import { Check, X, Clock, FileText } from 'lucide-react';
+import SafeAvatar from './SafeAvatar';
 
 interface PendingAttendance {
     id: string;
@@ -232,16 +233,13 @@ export default function AttendanceApproval() {
                                     <div className="flex gap-3">
                                         {/* User Avatar */}
                                         <div className="flex-shrink-0">
-                                            <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-gray-600 dark:text-gray-300 font-bold text-xs overflow-hidden">
-                                                {(Array.isArray(req.profiles) ? req.profiles[0]?.avatar_url : req.profiles?.avatar_url) ? (
-                                                    <img
-                                                        src={Array.isArray(req.profiles) ? req.profiles[0]?.avatar_url : req.profiles?.avatar_url}
-                                                        alt="Avatar"
-                                                        className="w-full h-full object-cover"
-                                                    />
-                                                ) : (
-                                                    Array.isArray(req.profiles) ? req.profiles[0]?.full_name?.[0] : req.profiles?.full_name?.[0]
-                                                )}
+                                            <div className="w-8 h-8 rounded-lg bg-gray-200 dark:bg-gray-700 flex items-center justify-center font-bold text-xs overflow-hidden">
+                                                <SafeAvatar
+                                                    src={Array.isArray(req.profiles) ? req.profiles[0]?.avatar_url : req.profiles?.avatar_url}
+                                                    alt={(Array.isArray(req.profiles) ? req.profiles[0]?.full_name : req.profiles?.full_name) || 'User'}
+                                                    className="w-full h-full rounded-lg"
+                                                    size={32}
+                                                />
                                             </div>
                                         </div>
 

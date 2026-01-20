@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Briefcase, User, MonitorSmartphone } from 'lucide-react';
+import SafeAvatar from './SafeAvatar';
 
 interface ActiveEmployee {
     id: string;
@@ -138,11 +139,12 @@ export default function WhosWorking() {
                                 {/* Avatar */}
                                 <div className="relative">
                                     <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 overflow-hidden flex items-center justify-center text-gray-500 dark:text-gray-400 font-semibold text-sm">
-                                        {emp.avatar_url ? (
-                                            <img src={emp.avatar_url} alt={emp.full_name} className="w-full h-full object-cover" />
-                                        ) : (
-                                            emp.full_name.charAt(0)
-                                        )}
+                                        <SafeAvatar
+                                            src={emp.avatar_url}
+                                            alt={emp.full_name || 'User'}
+                                            className="w-full h-full"
+                                            size={40}
+                                        />
                                     </div>
                                     <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white dark:border-gray-900 rounded-full ${emp.status === 'paused' ? 'bg-amber-400' : 'bg-green-500'
                                         }`} />

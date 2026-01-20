@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
 import { LogOut, LayoutDashboard, Users, Clock, Calendar, DollarSign, Briefcase, FileText, Shield, Menu, X, LifeBuoy, MessageSquare, ShieldAlert } from 'lucide-react';
 import { Mail } from 'lucide-react';
+import SafeAvatar from './SafeAvatar';
 import { CommandPalette } from './CommandPalette';
 import NotificationCenter from './NotificationCenter';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -226,13 +227,12 @@ export default function Layout() {
 
                 <div className="absolute bottom-0 w-full p-4 border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 transition-colors duration-200">
                     <div className="flex items-center mb-4 px-2">
-                        <div className="w-9 h-9 min-w-[2.25rem] rounded-full bg-purple-50 dark:bg-gray-800 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold border border-purple-100 dark:border-gray-700 overflow-hidden shadow-sm">
-                            {profile?.avatar_url ? (
-                                <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-                            ) : (
-                                profile?.full_name?.[0] || 'U'
-                            )}
-                        </div>
+                        <SafeAvatar
+                            src={profile?.avatar_url}
+                            alt={profile?.full_name || 'User'}
+                            className="w-9 h-9 shadow-sm"
+                            size={36}
+                        />
                         <div className="ml-3">
                             <p className="text-sm font-medium text-gray-900 dark:text-white truncate w-32">{profile?.full_name}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{profile?.role}</p>

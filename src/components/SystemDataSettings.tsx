@@ -68,6 +68,20 @@ export default function SystemDataSettings() {
     const clearAllData = async () => {
         setLoading(true);
         try {
+            // 0. CRITICAL: Log this action before deletion starts
+            if (user?.id) {
+                await supabase.from('audit_logs').insert({
+                    actor_id: user.id,
+                    action: 'SYSTEM_WIPE',
+                    table_name: 'ALL',
+                    details: {
+                        timestamp: new Date().toISOString(),
+                        reason: 'Manual System Wipe initiated via Admin Settings',
+                        ip: 'client-side-action'
+                    }
+                });
+            }
+
             // Helper function to delete all rows from a table
             const deleteTableParams = async (tableName: string) => {
                 try {

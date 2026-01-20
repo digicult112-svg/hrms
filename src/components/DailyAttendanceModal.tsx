@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { X, Search } from 'lucide-react';
+import SafeAvatar from './SafeAvatar';
 
 
 interface DailyAttendanceModalProps {
@@ -299,7 +300,12 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
                             <div key={emp.user_id} className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-xl transition-colors border border-transparent hover:border-gray-100 dark:hover:border-gray-700">
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center text-sm font-bold text-gray-600 dark:text-gray-300 overflow-hidden">
-                                        {emp.avatar_url ? <img src={emp.avatar_url} className="w-full h-full object-cover" /> : emp.full_name[0]}
+                                        <SafeAvatar
+                                            src={emp.avatar_url}
+                                            alt={emp.full_name || 'User'}
+                                            className="w-full h-full"
+                                            size={40}
+                                        />
                                     </div>
                                     <div>
                                         <div className="font-medium text-gray-900 dark:text-white">{emp.full_name}</div>

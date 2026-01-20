@@ -9,6 +9,7 @@ import WorkHoursSettings from '../components/WorkHoursSettings';
 import PayrollSettings from '../components/PayrollSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import WhosWorking from '../components/WhosWorking';
+import SafeAvatar from '../components/SafeAvatar';
 import Announcements from '../components/Announcements';
 import SystemDataSettings from '../components/SystemDataSettings';
 
@@ -185,11 +186,12 @@ export default function Dashboard() {
                                 <div className="bg-gradient-to-br from-purple-600 to-indigo-700 rounded-[2.5rem] p-6 text-white shadow-2xl shadow-purple-900/20 relative overflow-hidden h-fit flex flex-col sticky top-8">
                                     <div className="relative z-10">
                                         <div className="mb-4 w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/30 flex items-center justify-center overflow-hidden shadow-2xl">
-                                            {profile?.avatar_url ? (
-                                                <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-                                            ) : (
-                                                <span className="text-2xl font-bold text-white uppercase">{profile?.full_name?.charAt(0) || 'U'}</span>
-                                            )}
+                                            <SafeAvatar
+                                                src={profile?.avatar_url}
+                                                alt={profile?.full_name || 'User'}
+                                                className="w-full h-full"
+                                                size={80}
+                                            />
                                         </div>
 
                                         <h3 className="text-purple-100 font-medium mb-2 uppercase tracking-wider text-xs flex items-center gap-2">
