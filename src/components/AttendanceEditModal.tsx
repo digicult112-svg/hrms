@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString } from '../utils/date';
 import { X, Save, Trash2, Calendar, User as UserIcon } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 
@@ -39,7 +40,7 @@ export default function AttendanceEditModal({ isOpen, onClose, log, onSuccess }:
             } else {
                 // Default new
                 setUserId('');
-                setDate(new Date().toISOString().split('T')[0]);
+                setDate(toLocalISOString());
                 setClockIn('09:00');
                 setClockOut('17:00');
                 setMode('onsite');

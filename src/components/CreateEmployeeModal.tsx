@@ -103,7 +103,6 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
                     phone: formData.phone || null,
                     designation: formData.designation || null,
                     daily_work_hours: formData.dailyWorkHours,
-                    salary: parseFloat(formData.salary) || 0,
                     education: formData.education || null,
                     address: formData.address || null,
                     previous_experience: formData.isFresher ? null : (formData.previousExperience || null),
@@ -117,7 +116,17 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
 
             if (updateError) {
                 console.warn('Could not update additional profile details immediately:', updateError);
-                // We don't throw here because the user *was* created.
+            }
+
+            // [NEW] Update Salary in separate table
+            const salaryAmount = parseFloat(formData.salary) || 0;
+            if (salaryAmount > 0) {
+                await supabase
+                    .from('salaries')
+                    .upsert({
+                        user_id: authData.user.id,
+                        amount: salaryAmount
+                    });
             }
 
             // Reset form and close modal

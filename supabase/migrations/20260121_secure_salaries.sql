@@ -1,8 +1,39 @@
--- Updated Transactional Payroll Batch Generation Function with Server-Side Calculations
--- This version handles LOP, Tax, and attendance-based logic internally to prevent client-side manipulation.
+-- 1. Create Private Salaries Table
+CREATE TABLE IF NOT EXISTS public.salaries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+    amount NUMERIC NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id)
+);
 
+-- 2. Migrate existing data
+INSERT INTO public.salaries (user_id, amount)
+SELECT id, COALESCE(salary, 0) FROM public.profiles
+ON CONFLICT (user_id) DO NOTHING;
+
+-- 3. Enable RLS on Salaries
+ALTER TABLE public.salaries ENABLE ROW LEVEL SECURITY;
+
+-- 4. RLS Policies for Salaries
+CREATE POLICY "Users can view own salary" 
+ON public.salaries FOR SELECT 
+USING (auth.uid() = user_id);
+
+CREATE POLICY "HR/Admins can manage all salaries" 
+ON public.salaries FOR ALL 
+TO authenticated 
+USING (
+  EXISTS (
+    SELECT 1 FROM public.profiles 
+    WHERE id = auth.uid() AND role IN ('hr', 'admin')
+  )
+);
+
+-- 5. Update Payroll Function to use new table
 CREATE OR REPLACE FUNCTION generate_payroll_batch(
-  payroll_records JSONB, -- Array of objects containing {user_id} only (others ignored/recalculated)
+  payroll_records JSONB,
   target_month INTEGER,
   target_year INTEGER
 )
@@ -15,8 +46,6 @@ DECLARE
   processed_count INTEGER := 0;
   superseded_count INTEGER := 0;
   curr_user_id UUID;
-  curr_tenant_id UUID;
-  auth_tenant_id UUID;
   
   -- Settings
   start_day INTEGER := 26;
@@ -52,12 +81,6 @@ BEGIN
     RAISE EXCEPTION 'Access Denied: You do not have permission to generate payroll.';
   END IF;
 
-  -- 🔒 TENANT ISOLATION: Get the HR's tenant ID
-  SELECT tenant_id INTO auth_tenant_id FROM public.profiles WHERE id = auth.uid();
-  IF auth_tenant_id IS NULL THEN
-    RAISE EXCEPTION 'Configuration Error: Actor has no tenant_id assigned.';
-  END IF;
-
   -- Step 1: Fetch System Settings
   SELECT COALESCE((SELECT value::INTEGER FROM system_settings WHERE key = 'payroll_start_day'), 26) INTO start_day;
   SELECT COALESCE((SELECT value::INTEGER FROM system_settings WHERE key = 'payroll_end_day'), 25) INTO end_day;
@@ -65,7 +88,6 @@ BEGIN
   SELECT COALESCE((SELECT value::INTEGER FROM system_settings WHERE key = 'payroll_paid_leaves_per_month'), 1) INTO paid_leaves_per_month;
 
   -- Step 2: Calculate Cycle Range
-  -- Logical Month N usually starts on Day X of Month N-1 and ends on Day Y of Month N
   cycle_start := (target_year || '-' || target_month || '-' || start_day)::DATE - INTERVAL '1 month';
   cycle_end := (target_year || '-' || target_month || '-' || end_day)::DATE;
   total_days_in_cycle := (cycle_end - cycle_start) + 1;
@@ -75,17 +97,11 @@ BEGIN
   LOOP
     curr_user_id := (record_item->>'user_id')::UUID;
 
-    -- Fetch Employee Base Salary and Validate Tenant
-    SELECT salary, tenant_id INTO emp_base_salary, curr_tenant_id 
-    FROM profiles WHERE id = curr_user_id;
-
-    IF curr_tenant_id IS NULL OR curr_tenant_id != auth_tenant_id THEN
-      RAISE EXCEPTION 'Security Violation: Cannot process employee % outside of your tenant.', curr_user_id;
-    END IF;
-
+    -- Fetch Employee Base Salary from NEW SALARIES table
+    SELECT amount INTO emp_base_salary FROM salaries WHERE user_id = curr_user_id;
     CONTINUE WHEN emp_base_salary IS NULL OR emp_base_salary = 0;
 
-    -- A. Count Present Days (Onsite or Approved Remote)
+    -- A. Count Present Days
     SELECT COUNT(DISTINCT work_date) INTO present_days
     FROM attendance_logs
     WHERE user_id = curr_user_id
@@ -103,7 +119,7 @@ BEGIN
     )
     SELECT COUNT(*) INTO weekend_count
     FROM date_series
-    WHERE EXTRACT(DOW FROM d) IN (0, 6); -- 0=Sunday, 6=Saturday
+    WHERE EXTRACT(DOW FROM d) IN (0, 6);
 
     -- D. Count Approved Leaves
     SELECT COALESCE(SUM(
@@ -119,7 +135,6 @@ BEGIN
     paid_leaves_used := LEAST(approved_leave_days, paid_leaves_per_month);
     paid_days := present_days + holiday_count + weekend_count + paid_leaves_used;
     
-    -- Cap paid days at total cycle days
     IF paid_days > total_days_in_cycle THEN
       paid_days := total_days_in_cycle;
     END IF;
@@ -136,19 +151,10 @@ BEGIN
       END IF;
     END IF;
 
-    -- G. Adjustment / Target Salary Support
-    -- Calculate actual days in the target month/year for accurate PRORATA
-    -- net = (base + allowances) - (lop + tax)
-    -- allowances = net - base + lop + tax
     IF (record_item->>'target_net_salary') IS NOT NULL THEN
       net_salary := (record_item->>'target_net_salary')::NUMERIC;
-      lop_amount := ROUND((net_salary / total_days_in_cycle::NUMERIC) * lop_days); 
-      lop_amount := ROUND((emp_base_salary / total_days_in_cycle::NUMERIC) * lop_days); 
-      
-      -- Recalculate allowances to meet target
-      net_salary := (record_item->>'target_net_salary')::NUMERIC;
+      lop_amount := ROUND((emp_base_salary / 30.0) * lop_days); 
     ELSE
-      lop_amount := ROUND((emp_base_salary / total_days_in_cycle::NUMERIC) * lop_days);
       net_salary := emp_base_salary - (lop_amount + tax_amount);
     END IF;
 
@@ -166,7 +172,7 @@ BEGIN
       'server_calculated', true
     );
 
-    -- Step 4: Supersede existing current payroll for this user
+    -- Step 4: Supersede existing
     UPDATE payroll
     SET is_current = FALSE, superseded_at = NOW()
     WHERE user_id = curr_user_id
@@ -191,8 +197,8 @@ BEGIN
     ) VALUES (
       curr_user_id,
       emp_base_salary,
-      ROUND(emp_base_salary * 0.4), -- Standard 40% HRA
-      GREATEST(0, net_salary - (emp_base_salary + ROUND(emp_base_salary * 0.4) - (lop_amount + tax_amount))), -- Allowances needed to hit net
+      ROUND(emp_base_salary * 0.4),
+      GREATEST(0, net_salary - (emp_base_salary + ROUND(emp_base_salary * 0.4) - (lop_amount + tax_amount))),
       lop_amount + tax_amount,
       target_month,
       target_year,
@@ -204,26 +210,6 @@ BEGIN
     processed_count := processed_count + 1;
   END LOOP;
 
-  RETURN jsonb_build_object(
-    'success', true,
-    'processed_count', processed_count,
-    'month', target_month,
-    'year', target_year
-  );
-
-EXCEPTION
-  WHEN OTHERS THEN
-    RETURN jsonb_build_object(
-      'success', false,
-      'error', SQLERRM,
-      'error_detail', SQLSTATE
-    );
+  RETURN jsonb_build_object('success', true, 'processed_count', processed_count);
 END;
 $$;
-
--- Grant execute permission
-GRANT EXECUTE ON FUNCTION generate_payroll_batch TO authenticated;
-
--- Update documentation
-COMMENT ON FUNCTION generate_payroll_batch IS 
-  'Atomically generates payroll for multiple employees using versioning. Existing current records for the month are superseded (marked is_current=FALSE) rather than deleted.';

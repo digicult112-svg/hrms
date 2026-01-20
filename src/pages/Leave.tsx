@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { notifyHR, notifyUser } from '../lib/notifications';
 import { logAction } from '../lib/logger';
+import { toLocalISOString } from '../utils/date';
 import type { LeaveCalendarEvent } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { CheckCircle, XCircle, Plus, X, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -40,12 +41,14 @@ export default function LeavePage() {
             let query = supabase.from('leave_requests')
                 .select(`
                     *,
-                    profiles:user_id (
+                    profiles:user_id!inner (
                         full_name,
                         email,
-                        avatar_url
+                        avatar_url,
+                        deleted_at
                     )
                 `)
+                .is('profiles.deleted_at', null)
                 .order('created_at', { ascending: false });
 
             // If not HR, only show own leaves
@@ -77,6 +80,7 @@ export default function LeavePage() {
             const { data: employees, error: empError } = await supabase
                 .from('profiles')
                 .select('id, full_name, date_of_birth')
+                .is('deleted_at', null)
                 .not('date_of_birth', 'is', null);
 
             if (empError) throw empError;
@@ -439,7 +443,7 @@ export default function LeavePage() {
                             {profile?.role === 'hr' && (
                                 <button
                                     onClick={() => {
-                                        setEventDate(new Date().toISOString().split('T')[0]);
+                                        setEventDate(toLocalISOString());
                                         setShowEventModal(true);
                                     }}
                                     className="flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
@@ -468,7 +472,7 @@ export default function LeavePage() {
                                 const day = i + 1;
                                 const dateStr = `${currentMonthDate.getFullYear()}-${String(currentMonthDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                                 const dayEvents = events.filter(e => e.event_date === dateStr);
-                                const isToday = dateStr === new Date().toISOString().split('T')[0];
+                                const isToday = dateStr === toLocalISOString();
 
                                 return (
                                     <div

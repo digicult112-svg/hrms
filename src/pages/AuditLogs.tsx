@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import type { AuditLog } from '../types';
+import { toLocalISOString } from '../utils/date';
 import { Clock, FileText, Download } from 'lucide-react';
 import { downloadCSV, downloadPDF } from '../utils/export';
 
@@ -45,7 +46,7 @@ export default function AuditLogsPage() {
                 <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Audit Logs</h1>
                 <div className="flex gap-2">
                     <button
-                        onClick={() => downloadCSV(getFormattedLogs(), `audit-logs-${new Date().toISOString().split('T')[0]}`)}
+                        onClick={() => downloadCSV(getFormattedLogs(), `audit - logs - ${toLocalISOString()} `)}
                         disabled={loading || logs.length === 0}
                         className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -53,7 +54,7 @@ export default function AuditLogsPage() {
                         Export CSV
                     </button>
                     <button
-                        onClick={() => downloadPDF(getFormattedLogs(), `audit-logs-${new Date().toISOString().split('T')[0]}`, 'Audit Logs Report')}
+                        onClick={() => downloadPDF(getFormattedLogs(), `audit - logs - ${toLocalISOString()} `, 'Audit Logs Report')}
                         disabled={loading || logs.length === 0}
                         className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >

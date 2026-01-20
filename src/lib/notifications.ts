@@ -26,7 +26,7 @@ export const notifyUser = async (
 
         // 2. Insert into DB (Notification Center)
         const { error } = await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .insert({
                 user_id: userId,
                 title,
@@ -69,7 +69,7 @@ export const notifyUser = async (
 export const markNotificationRead = async (notificationId: string) => {
     try {
         const { error } = await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .update({ is_read: true })
             .eq('id', notificationId);
 
@@ -85,7 +85,7 @@ export const markNotificationRead = async (notificationId: string) => {
 export const markAllRead = async (userId: string) => {
     try {
         const { error } = await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .update({ is_read: true })
             .eq('user_id', userId)
             .eq('is_read', false);
@@ -125,7 +125,7 @@ export const notifyHR = async (
 
         // 3. Bulk insert to DB
         const { error: insertError } = await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .insert(notifications);
 
         if (insertError) throw insertError;

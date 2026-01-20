@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Candidate, JobPosition } from '../types';
+import { toLocalISOString } from '../utils/date';
 import { Search, Plus, X, Download, FileText, FileSpreadsheet, Trash2 } from 'lucide-react';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
+import { logAction } from '../lib/logger';
+import { useAuth } from '../context/AuthContext';
 
 // Extended type for joined data
 type CandidateWithJob = Candidate & { job?: JobPosition };
@@ -76,6 +78,7 @@ const CandidateCard = React.memo(({ candidate, index, onDelete }: { candidate: C
 });
 
 export default function CandidatesPage() {
+    const { user } = useAuth();
     const [candidates, setCandidates] = useState<CandidateWithJob[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [jobs, setJobs] = useState<JobPosition[]>([]);
@@ -150,6 +153,14 @@ export default function CandidatesPage() {
                     )
                 );
                 alert('Failed to update status. Please try again.');
+            } else {
+                // Log status change
+                await logAction(user?.id || '', 'CANDIDATE_STATUS_UPDATED', 'candidates', {
+                    candidate_id: draggableId,
+                    old_status: oldStatus,
+                    new_status: newStatus,
+                    timestamp: new Date().toISOString()
+                });
             }
         } catch (error) {
             console.error('Error updating status:', error);
@@ -178,6 +189,14 @@ export default function CandidatesPage() {
             setCandidates([data, ...candidates]);
             setShowModal(false);
             setFormData({ full_name: '', email: '', phone: '', job_id: '' });
+
+            // Log Addition
+            await logAction(user?.id || '', 'CANDIDATE_ADDED', 'candidates', {
+                candidate_id: data.id,
+                full_name: data.full_name,
+                job_id: data.job_id,
+                timestamp: new Date().toISOString()
+            });
         } catch (error: any) {
             console.error('Error adding candidate:', error);
             alert(error.message);
@@ -206,6 +225,13 @@ export default function CandidatesPage() {
             if (count === 0) {
                 throw new Error('Candidate was not deleted from database (likely permission issue)');
             }
+
+            // Log Deletion
+            await logAction(user?.id || '', 'CANDIDATE_DELETED', 'candidates', {
+                candidate_id: id,
+                full_name: candidateToDelete?.full_name,
+                timestamp: new Date().toISOString()
+            });
 
         } catch (error: any) {
             console.error('Error deleting candidate:', error);
@@ -315,8 +341,16 @@ export default function CandidatesPage() {
         const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `Recruitment_Data_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `Recruitment_Data_${toLocalISOString()}.csv`;
         link.click();
+
+        // Log Export
+        logAction(user?.id || '', 'REPORT_EXPORTED', 'candidates', {
+            format: 'csv',
+            type: 'recruitment_data',
+            timestamp: new Date().toISOString()
+        });
+
         setShowDownloadMenu(false);
     };
 
@@ -328,7 +362,7 @@ export default function CandidatesPage() {
         doc.text('Recruitment Report', 14, 20);
 
         doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+        doc.text(`Generated on: ${toLocalISOString()}`, 14, 30);
         doc.text(`Total Candidates: ${candidates.length}`, 14, 36);
 
         // Table
@@ -351,7 +385,15 @@ export default function CandidatesPage() {
             headStyles: { fillColor: [100, 50, 200] }
         });
 
-        doc.save(`Recruitment_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+        doc.save(`Recruitment_Report_${toLocalISOString()}.pdf`);
+
+        // Log Export
+        logAction(user?.id || '', 'REPORT_EXPORTED', 'candidates', {
+            format: 'pdf',
+            type: 'recruitment_report',
+            timestamp: new Date().toISOString()
+        });
+
         setShowDownloadMenu(false);
     };
 

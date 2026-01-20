@@ -87,7 +87,7 @@ export default function ViewEmployeeDetailsModal({ isOpen, onClose, employee }: 
                                     </div>
                                     <div className="flex items-center gap-2 text-gray-900 dark:text-white font-medium">
                                         <DollarSign className="w-4 h-4 text-gray-400" />
-                                        ₹{employee.salary?.toLocaleString() || '0'} / Month
+                                        ₹{employee.salary_record?.amount?.toLocaleString() || '0'} / Month
                                     </div>
                                 </div>
                             </div>

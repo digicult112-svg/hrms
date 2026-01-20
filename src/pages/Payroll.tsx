@@ -40,10 +40,10 @@ export default function PayrollPage() {
     useEffect(() => {
         if (selectedEmployee) {
             const emp = employees.find(e => e.id === selectedEmployee);
-            if (emp && emp.salary) {
-                setBaseSalary(emp.salary.toString());
+            if (emp && emp.salary_record) {
+                setBaseSalary(emp.salary_record.amount.toString());
                 // Calculate default HRA (e.g., 40% of basic)
-                setHra(Math.round(emp.salary * 0.4).toString());
+                setHra(Math.round(emp.salary_record.amount * 0.4).toString());
             } else {
                 setBaseSalary('');
                 setHra('');
@@ -62,7 +62,7 @@ export default function PayrollPage() {
         try {
             const { data, error } = await supabase
                 .from('profiles')
-                .select('id, full_name, email, salary')
+                .select('id, full_name, email, salary_record:salaries(amount)')
                 .is('deleted_at', null)
                 .order('full_name');
 
@@ -102,24 +102,11 @@ export default function PayrollPage() {
         setGenerating(true);
 
         try {
-            // 0. Update Employee Profile Salary to match this new Base Salary
-            // This ensures 'Manage Salaries' (Current Salary) stays in sync.
-            const { error: profileError } = await supabase
-                .from('profiles')
-                .update({ salary: parseFloat(baseSalary) })
-                .eq('id', selectedEmployee);
-
-            if (profileError) throw profileError;
-
             // 1. Call the atomic RPC to generate payroll (this handles versioning/superseding)
             const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
                 payroll_records: [{
-                    user_id: selectedEmployee,
-                    base_salary: parseFloat(baseSalary),
-                    hra: parseFloat(hra) || 0,
-                    allowances: parseFloat(allowances) || 0,
-                    deductions: parseFloat(deductions) || 0,
-                    metadata: {} // Manual generation doesn't include breakdown unless we add it
+                    user_id: selectedEmployee
+                    // Server will fetch the latest Salary from profile and calculate LOP/Tax
                 }],
                 target_month: month,
                 target_year: year
@@ -155,58 +142,11 @@ export default function PayrollPage() {
             const currentMonth = new Date().getMonth() + 1;
             const currentYear = new Date().getFullYear();
 
-            // 1. Fetch existing payroll or profile to get Base/HRA benchmarks
-            const { data: records, error: fetchError } = await supabase
-                .from('payroll')
-                .select('*')
-                .eq('user_id', userId)
-                .eq('month', currentMonth)
-                .eq('year', currentYear)
-                .eq('is_current', true);
-
-            if (fetchError) throw fetchError;
-
-            let payrollRecord = records?.[0];
-
-            // If no payroll exists, we try to fetch profile data 
-            let base = 0;
-            let hra = 0;
-            let deductions = 0;
-
-            if (payrollRecord) {
-                base = payrollRecord.base_salary;
-                hra = payrollRecord.hra;
-                deductions = payrollRecord.deductions || 0;
-            } else {
-                const { data: emp } = await supabase.from('profiles').select('salary').eq('id', userId).single();
-                base = emp?.salary || 0;
-
-                // CRITICAL FIX: If Base Salary is 0 (New Employee), update the PROFILE salary too.
-                // This ensures "Current Salary" column gets populated.
-                if (base === 0) {
-                    base = targetNetSalary;
-                    hra = Math.round(base * 0.4); // Standard HRA
-
-                    // Update Profile
-                    await supabase.from('profiles').update({ salary: base }).eq('id', userId);
-                } else {
-                    hra = Math.round(base * 0.4);
-                }
-            }
-
-            // Calculation: Target = Base + HRA + Allowances - Deductions
-            // => Allowances = Target - Base - HRA + Deductions
-            const newAllowances = Math.max(0, targetNetSalary - base - hra + deductions);
-
-            // 2. Call the atomic RPC to generate/update payroll (this handles versioning)
+            // Notify server to generate/update payroll for this user with a specific target
             const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
                 payroll_records: [{
                     user_id: userId,
-                    base_salary: base,
-                    hra: hra,
-                    deductions: deductions,
-                    allowances: newAllowances,
-                    metadata: payrollRecord?.metadata || {}
+                    target_net_salary: targetNetSalary
                 }],
                 target_month: currentMonth,
                 target_year: currentYear
@@ -215,7 +155,7 @@ export default function PayrollPage() {
             if (rpcError) throw rpcError;
             if (!rpcResult?.success) throw new Error(rpcResult?.error || 'Failed to update salary');
 
-            success('Revised salary updated successfully via allowances');
+            success('Revised salary updated successfully via server-side calculation');
 
             // Refresh lists
             await fetchEmployees();
@@ -388,7 +328,7 @@ export default function PayrollPage() {
             const calculatedRecords: any[] = [];
 
             for (const emp of employeesData || []) {
-                const baseSalary = emp.salary || 0;
+                const baseSalary = emp.salary_record?.amount || 0;
 
                 // Fetch Attendance
                 const { data: attendance } = await supabase
@@ -501,12 +441,7 @@ export default function PayrollPage() {
         setGeneratingAll(true);
         try {
             const payrollRecordsForDb = previewData.records.map((rec: any) => ({
-                user_id: rec.user_id,
-                base_salary: rec.base_salary,
-                hra: rec.hra,
-                allowances: rec.allowances,
-                deductions: rec.deductions,
-                metadata: rec.metadata
+                user_id: rec.user_id
             }));
 
             const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
@@ -647,8 +582,8 @@ export default function PayrollPage() {
             // Dates
             const prevMonthDate = new Date(p.year, p.month - 2, startDay); // Month is 1-based in DB
             const currMonthDate = new Date(p.year, p.month - 1, endDay);
-            const startStr = prevMonthDate.toISOString().split('T')[0];
-            const endStr = currMonthDate.toISOString().split('T')[0];
+            const startStr = toLocalISOString(prevMonthDate);
+            const endStr = toLocalISOString(currMonthDate);
             const totalDaysInCycle = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
 
             // Fetch Holidays
@@ -900,6 +835,16 @@ export default function PayrollPage() {
 
             // Save
             doc.save(`Payslip_${p.profiles?.full_name?.replace(/\s+/g, '_') || 'Employee'}_${getMonthName(p.month)}_${p.year}.pdf`);
+
+            // Audit Log
+            await logAction(user?.id || '', 'REPORT_EXPORTED', 'payroll', {
+                format: 'pdf',
+                type: 'payslip',
+                employee_id: p.user_id,
+                month: p.month,
+                year: p.year,
+                timestamp: new Date().toISOString()
+            });
         } catch (error) {
             console.error('Error generating PDF:', error);
             alert('Failed to generate PDF. Please check console for details.');
@@ -1076,7 +1021,7 @@ export default function PayrollPage() {
                                                     {emp.role || 'Employee'}
                                                 </td>
                                                 <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100 font-medium">
-                                                    {emp.salary ? formatCurrency(emp.salary) : '-'}
+                                                    ₹{emp.salary_record?.amount?.toLocaleString() || '0'} / Month
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <input

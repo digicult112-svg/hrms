@@ -4,6 +4,7 @@ import { X, Download, Clock, DollarSign, FileText, Calendar, FileJson, FileType 
 import type { Profile } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { toLocalISOString } from '../utils/date';
 
 interface EmployeeHistoryModalProps {
     isOpen: boolean;
@@ -70,7 +71,7 @@ export default function EmployeeHistoryModal({ isOpen, onClose, employee }: Empl
         const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `Audit_Log_${employee.full_name?.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `Audit_Log_${employee.full_name?.replace(/\s+/g, '_')}_${toLocalISOString()}.csv`;
         link.click();
         setShowDownloadMenu(false);
     };
@@ -83,7 +84,7 @@ export default function EmployeeHistoryModal({ isOpen, onClose, employee }: Empl
         doc.text(`Audit History: ${employee.full_name}`, 14, 20);
 
         doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 30);
+        doc.text(`Generated on: ${toLocalISOString(new Date())}`, 14, 30);
 
         // Table
         const tableColumn = ["Timestamp", "Action", "Details", "Category"];
@@ -200,7 +201,7 @@ export default function EmployeeHistoryModal({ isOpen, onClose, employee }: Empl
                                 {logs.map((log) => (
                                     <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                                         <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                                            {new Date(log.timestamp).toLocaleString()}
+                                            {toLocalISOString(new Date(log.timestamp))}
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex items-center gap-2">

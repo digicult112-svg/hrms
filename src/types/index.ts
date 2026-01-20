@@ -18,7 +18,7 @@ export interface Profile {
     phone?: string;
     date_joined?: string;
     base_location_id?: string;
-    salary?: number;
+    salary_record?: Salary; // [NEW] Related salary
     daily_work_hours?: number;
     avatar_url?: string;
     education?: string;
@@ -27,8 +27,17 @@ export interface Profile {
     previous_company?: string;
     address?: string;
     is_frozen?: boolean;
+    tenant_id?: string;
     created_at: string;
     deleted_at?: string;
+}
+
+export interface Salary {
+    id: string;
+    user_id: string;
+    amount: number;
+    created_at: string;
+    updated_at: string;
 }
 
 export interface EmployeeExperience {
@@ -134,13 +143,14 @@ export interface Candidate {
 }
 
 export interface PerformanceSummary {
-    id: string;
+    id?: string;
     user_id: string;
     year: number;
     month: number;
     total_hours: number;
     total_leaves: number;
-    generated_at: string;
+    present_days?: number;
+    generated_at?: string;
 }
 
 export interface AuditLog {

@@ -3,9 +3,10 @@ import { supabase } from '../lib/supabase';
 import type { JobPosition } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { Plus, X } from 'lucide-react';
+import { logAction } from '../lib/logger';
 
 export default function JobsPage() {
-    const { profile } = useAuth();
+    const { user, profile } = useAuth();
     const [jobs, setJobs] = useState<JobPosition[]>([]);
     const [showForm, setShowForm] = useState(false);
     const [formData, setFormData] = useState({ title: '', department: '', description: '' });
@@ -40,6 +41,14 @@ export default function JobsPage() {
             });
 
             if (error) throw error;
+
+            // Log Creation
+            await logAction(user?.id || '', 'JOB_CREATED', 'job_positions', {
+                title: formData.title,
+                department: formData.department,
+                timestamp: new Date().toISOString()
+            });
+
             setShowForm(false);
             setFormData({ title: '', department: '', description: '' });
             fetchJobs();
@@ -58,6 +67,13 @@ export default function JobsPage() {
                 .eq('id', id);
 
             if (error) throw error;
+
+            // Log Deletion
+            await logAction(user?.id || '', 'JOB_DELETED', 'job_positions', {
+                job_id: id,
+                timestamp: new Date().toISOString()
+            });
+
             setSelectedJob(null);
             fetchJobs();
         } catch (error) {

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { notifyUser } from '../lib/notifications';
 import { X, Send, MessageSquare, Loader2, CheckCircle, RotateCw } from 'lucide-react';
 import SafeAvatar from './SafeAvatar';
+import { logAction } from '../lib/logger';
 import { useAuth } from '../context/AuthContext';
 import type { Ticket, TicketComment, TicketStatus } from '../types';
 import { format } from 'date-fns';
@@ -70,6 +71,13 @@ export default function TicketDetailsModal({ ticket, isOpen, onClose, onUpdate }
                 });
 
             if (error) throw error;
+
+            // Log comment addition
+            await logAction(user.id, 'TICKET_COMMENT_ADDED', 'ticket_comments', {
+                ticket_id: ticket.id,
+                timestamp: new Date().toISOString()
+            });
+
             setNewComment('');
             fetchComments();
         } catch (err) {
@@ -91,6 +99,14 @@ export default function TicketDetailsModal({ ticket, isOpen, onClose, onUpdate }
                 .eq('id', ticket.id);
 
             if (error) throw error;
+
+            // Log status change
+            await logAction(user?.id || '', 'TICKET_STATUS_UPDATED', 'tickets', {
+                ticket_id: ticket.id,
+                old_status: ticket.status,
+                new_status: newStatus,
+                timestamp: new Date().toISOString()
+            });
 
             // Notify Employee (Status Update)
             if (ticket.employee_id !== user?.id) { // Don't notify if user is updating their own ticket

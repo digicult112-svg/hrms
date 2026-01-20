@@ -34,9 +34,9 @@ export default function PerformancePage() {
         try {
             // setLoading(true);
 
-            // 1. Fetch Performance Summary (Attendance Trends)
+            // 1. Fetch Performance Summary (Attendance Trends) from Dynamic View
             let perfQuery = supabase
-                .from('performance_summary_monthly')
+                .from('attendance_performance_view')
                 .select('*')
                 .order('month', { ascending: true }); // Order by month for the chart
 

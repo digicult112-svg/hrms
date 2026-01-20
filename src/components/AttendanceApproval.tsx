@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { notifyUser } from '../lib/notifications';
+import { toLocalISOString } from '../utils/date';
 import { Check, X, Clock, FileText } from 'lucide-react';
 import SafeAvatar from './SafeAvatar';
 
@@ -41,19 +42,19 @@ export default function AttendanceApproval() {
             let query = supabase
                 .from('attendance_logs')
                 .select(`
-                    id,
-                    user_id,
-                    clock_in,
-                    wfh_reason,
-                    status,
-                    profiles:user_id (
-                        full_name,
-                        email,
-                        designation,
-                        designation,
-                        daily_work_hours,
-                        avatar_url
-                    )
+id,
+    user_id,
+    clock_in,
+    wfh_reason,
+    status,
+    profiles: user_id(
+        full_name,
+        email,
+        designation,
+        designation,
+        daily_work_hours,
+        avatar_url
+    )
                 `)
                 .eq('mode', 'wfh')
                 .order('clock_in', { ascending: false });
@@ -97,9 +98,9 @@ export default function AttendanceApproval() {
                         .from('leave_requests')
                         .insert({
                             user_id: request.user_id,
-                            start_date: new Date(request.clock_in).toISOString().split('T')[0],
-                            end_date: new Date(request.clock_in).toISOString().split('T')[0],
-                            reason: `WFH Request Rejected: ${request.wfh_reason}`,
+                            start_date: toLocalISOString(new Date(request.clock_in)),
+                            end_date: toLocalISOString(new Date(request.clock_in)),
+                            reason: `WFH Request Rejected: ${request.wfh_reason} `,
                             status: 'approved', // Auto-approve leave since HR rejected work
                             hr_comment: 'Automatically created upon WFH rejection'
                         });
@@ -146,7 +147,7 @@ export default function AttendanceApproval() {
                     await notifyUser(
                         request.user_id,
                         'WFH Request Rejected',
-                        `Your Work From Home request has been rejected. A leave record has been created automatically.`,
+                        `Your Work From Home request has been rejected.A leave record has been created automatically.`,
                         'error'
                     );
                 }
@@ -156,7 +157,7 @@ export default function AttendanceApproval() {
             setPendingRequests(prev => prev.filter(req => req.id !== id));
             // Optional: could add to history immediately, but fetching on tab switch is safer
         } catch (error: any) {
-            console.error(`Error ${action} request:`, error);
+            console.error(`Error ${action} request: `, error);
             alert(`Failed to ${action} request`);
         }
     };
@@ -193,25 +194,25 @@ export default function AttendanceApproval() {
                     <div className="flex p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
                         <button
                             onClick={() => setActiveTab('pending')}
-                            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all duration-200 ${activeTab === 'pending'
+                            className={`px - 3 py - 1 rounded - md text - xs font - semibold transition - all duration - 200 ${activeTab === 'pending'
                                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
+                                } `}
                         >
                             Pending
                             {pendingRequests.length > 0 && (
-                                <span className={`ml-1.5 px-1 py-0 rounded-full text-[9px] ${activeTab === 'pending' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400' : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
-                                    }`}>
+                                <span className={`ml - 1.5 px - 1 py - 0 rounded - full text - [9px] ${activeTab === 'pending' ? 'bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400' : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300'
+                                    } `}>
                                     {pendingRequests.length}
                                 </span>
                             )}
                         </button>
                         <button
                             onClick={() => setActiveTab('history')}
-                            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all duration-200 ${activeTab === 'history'
+                            className={`px - 3 py - 1 rounded - md text - xs font - semibold transition - all duration - 200 ${activeTab === 'history'
                                 ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                                }`}
+                                } `}
                         >
                             History
                         </button>
@@ -281,10 +282,10 @@ export default function AttendanceApproval() {
                                                 </div>
                                             ) : (
                                                 <div className="flex items-center gap-2">
-                                                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${req.status === 'approved'
+                                                    <span className={`inline - flex items - center gap - 1 px - 2 py - 0.5 rounded text - [10px] font - bold uppercase tracking - wide border ${req.status === 'approved'
                                                         ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-100 dark:border-green-900/30'
                                                         : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-100 dark:border-red-900/30'
-                                                        }`}>
+                                                        } `}>
                                                         {req.status}
                                                     </span>
                                                 </div>

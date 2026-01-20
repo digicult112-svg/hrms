@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString } from '../utils/date';
 import DailyAttendanceModal from './DailyAttendanceModal';
 
 interface DayStats {
@@ -34,8 +35,8 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
 
     const fetchMonthStats = async () => {
         setLoading(true);
-        const startDate = new Date(year, month, 1).toISOString().split('T')[0];
-        const endDate = new Date(year, month + 1, 0).toISOString().split('T')[0];
+        const startDate = toLocalISOString(new Date(year, month, 1));
+        const endDate = toLocalISOString(new Date(year, month + 1, 0));
 
         try {
             // 1. Fetch Attendance Logs
@@ -68,7 +69,7 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
                 statsMap[dateStr] = { date: dateStr, present: 0, leaves: 0, absent_marked: 0, status: 'none' };
             }
 
-            const todayStr = new Date().toISOString().split('T')[0];
+            const todayStr = toLocalISOString();
 
             // Fill Present
             logs?.forEach(log => {
@@ -88,7 +89,7 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
                 const isUnexcused = leave.reason === 'Unexcused Absence';
 
                 while (curr <= end) {
-                    const dStr = curr.toISOString().split('T')[0];
+                    const dStr = toLocalISOString(curr);
                     if (statsMap[dStr]) {
                         if (isUnexcused) {
                             statsMap[dStr].absent_marked++;
@@ -151,7 +152,7 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
 
                 {stats.map(dayStat => {
                     const dateObj = new Date(dayStat.date);
-                    const isToday = dayStat.date === new Date().toISOString().split('T')[0];
+                    const isToday = dayStat.date === toLocalISOString();
                     const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
 
                     return (

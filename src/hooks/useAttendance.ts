@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString } from '../utils/date';
 import { notifyHR } from '../lib/notifications';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
@@ -47,12 +48,15 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
         }
 
         try {
-            const today = new Date().toISOString().split('T')[0];
+            // Get the server's definition of "Today" to handle timezone discrepancies
+            const { data: serverToday, error: rpcError } = await supabase.rpc('get_server_today');
+            if (rpcError) throw rpcError;
+
             const { data, error } = await supabase
                 .from('attendance_logs')
                 .select('*')
                 .eq('user_id', user.id)
-                .eq('work_date', today)
+                .eq('work_date', serverToday)
                 .maybeSingle();
 
             if (error) throw error;
@@ -316,14 +320,13 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
                 }
             }
 
-            const now = new Date();
             const { data, error } = await withTimeout(
                 supabase
                     .from('attendance_logs')
                     .insert({
                         user_id: user.id,
-                        work_date: now.toISOString().split('T')[0],
-                        clock_in: now.toISOString(),
+                        // work_date: removed - let DB DEFAULT CURRENT_DATE handle it
+                        // clock_in: removed - let DB DEFAULT NOW() handle it
                         mode: mode,
                         geo_lat: lat,
                         geo_lon: lon,
@@ -338,7 +341,7 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
             if (error) throw error;
 
             setTodayLogId(data.id);
-            setStartTime(now);
+            setStartTime(new Date(data.clock_in)); // Use the timestamp returned by the server
             setStatus('working');
             if (mode === 'wfh') {
                 setIsPendingApproval(true);

@@ -9,6 +9,13 @@ SECURITY DEFINER
 SET search_path = auth, public
 AS $$
 BEGIN
+  -- 🔒 SECURITY CHECK: Only HR or Admins can ban users
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role IN ('hr', 'admin')
+  ) THEN
+    RAISE EXCEPTION 'Access Denied: You do not have permission to ban users.';
+  END IF;
   -- Update auth.users to set banned_until to infinity
   UPDATE auth.users
   SET banned_until = 'infinity'::timestamptz
@@ -48,6 +55,13 @@ SECURITY DEFINER
 SET search_path = auth, public
 AS $$
 BEGIN
+  -- 🔒 SECURITY CHECK: Only HR or Admins can unban users
+  IF NOT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND role IN ('hr', 'admin')
+  ) THEN
+    RAISE EXCEPTION 'Access Denied: You do not have permission to unban users.';
+  END IF;
   -- Remove the ban by setting banned_until to NULL
   UPDATE auth.users
   SET banned_until = NULL

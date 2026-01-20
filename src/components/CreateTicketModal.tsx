@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { notifyHR } from '../lib/notifications';
 import { X, Loader2 } from 'lucide-react';
+import { logAction } from '../lib/logger';
 import { useAuth } from '../context/AuthContext';
 import type { TicketCategory, TicketPriority } from '../types';
 
@@ -41,6 +42,14 @@ export default function CreateTicketModal({ isOpen, onClose, onSuccess }: Create
                 });
 
             if (insertError) throw insertError;
+
+            // Log ticket creation
+            await logAction(user.id, 'TICKET_CREATED', 'tickets', {
+                category: formData.category,
+                priority: formData.priority,
+                subject: formData.subject,
+                timestamp: new Date().toISOString()
+            });
 
             setFormData({
                 category: 'General',

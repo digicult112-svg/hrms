@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString } from '../utils/date';
 import { useAuth } from '../context/AuthContext';
 import { MapPin, Briefcase, User, MonitorSmartphone } from 'lucide-react';
 import SafeAvatar from './SafeAvatar';
@@ -36,7 +37,7 @@ export default function WhosWorking() {
                     event: '*', // Listen to INSERT (clock-in) and UPDATE (clock-out/pause)
                     schema: 'public',
                     table: 'attendance_logs',
-                    filter: `work_date=eq.${new Date().toISOString().split('T')[0]}`
+                    filter: `work_date = eq.${toLocalISOString()} `
                 },
                 () => {
                     fetchActiveEmployees();
@@ -50,22 +51,22 @@ export default function WhosWorking() {
     }, [isHR]);
 
     const fetchActiveEmployees = async () => {
-        const today = new Date().toISOString().split('T')[0];
+        const today = toLocalISOString();
 
         // Fetch logs for today where clock_out is NULL (still working)
         const { data, error } = await supabase
             .from('attendance_logs')
             .select(`
-                user_id,
-                mode,
-                clock_in,
-                last_pause_time,
-                profiles:user_id (
-                    id,
-                    full_name,
-                    avatar_url,
-                    designation
-                )
+user_id,
+    mode,
+    clock_in,
+    last_pause_time,
+    profiles: user_id(
+        id,
+        full_name,
+        avatar_url,
+        designation
+    )
             `)
             .eq('work_date', today)
             .is('clock_out', null) // Only active sessions
@@ -146,8 +147,8 @@ export default function WhosWorking() {
                                             size={40}
                                         />
                                     </div>
-                                    <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 border-2 border-white dark:border-gray-900 rounded-full ${emp.status === 'paused' ? 'bg-amber-400' : 'bg-green-500'
-                                        }`} />
+                                    <div className={`absolute - bottom - 0.5 - right - 0.5 w - 3.5 h - 3.5 border - 2 border - white dark: border - gray - 900 rounded - full ${emp.status === 'paused' ? 'bg-amber-400' : 'bg-green-500'
+                                        } `} />
                                 </div>
 
                                 {/* Info */}
@@ -157,10 +158,10 @@ export default function WhosWorking() {
                                 </div>
 
                                 {/* Status Badge */}
-                                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wide border ${emp.mode === 'onsite'
-                                    ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-900/30'
-                                    : 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-100 dark:border-purple-900/30'
-                                    }`}>
+                                <div className={`flex items - center gap - 1.5 px - 2.5 py - 1 rounded - lg text - [10px] font - bold uppercase tracking - wide border ${emp.mode === 'onsite'
+                                        ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-100 dark:border-blue-900/30'
+                                        : 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-purple-100 dark:border-purple-900/30'
+                                    } `}>
                                     {emp.mode === 'onsite' ? <Briefcase className="w-3 h-3" /> : <MapPin className="w-3 h-3" />}
                                     {emp.mode === 'onsite' ? 'Office' : 'Remote'}
                                 </div>

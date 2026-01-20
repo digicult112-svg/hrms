@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import type { Profile } from '../types';
@@ -7,6 +7,7 @@ interface AuthContextType {
     session: Session | null;
     user: User | null;
     profile: Profile | null;
+    tenantId: string | null;
     loading: boolean;
     signOut: () => Promise<void>;
 }
@@ -17,7 +18,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [session, setSession] = useState<Session | null>(null);
     const [user, setUser] = useState<User | null>(null);
     const [profile, setProfile] = useState<Profile | null>(null);
+    const [tenantId, setTenantId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const isSignOutInProgress = useRef(false);
 
     useEffect(() => {
         // Get initial session
@@ -61,8 +64,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     filter: `id=eq.${user.id}`
                 },
                 async (payload) => {
-                    if (payload.new.is_frozen) {
+                    if (payload.new.is_frozen && !isSignOutInProgress.current) {
+                        isSignOutInProgress.current = true;
                         await signOut();
+                        // We use a simple window alert here as a last resort before redirect, 
+                        // but the signOut logic will trigger the UI to clear.
                         alert('Your account has been frozen by the administrator. Session terminated.');
                     }
                 }
@@ -85,15 +91,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (error) {
                 console.error('Error fetching profile:', error);
             } else {
-                if (data.is_frozen) {
+                if (data.is_frozen && !isSignOutInProgress.current) {
+                    isSignOutInProgress.current = true;
                     await supabase.auth.signOut();
                     setProfile(null);
+                    setTenantId(null);
                     setUser(null);
                     setSession(null);
                     alert('Your account has been frozen by the administrator. Please contact HR.');
                     return;
                 }
                 setProfile(data);
+                setTenantId(data.tenant_id);
             }
         } catch (error) {
             console.error('Error:', error);
@@ -103,14 +112,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     const signOut = async () => {
-        await supabase.auth.signOut();
-        setProfile(null);
-        setUser(null);
-        setSession(null);
+        if (isSignOutInProgress.current) return;
+        isSignOutInProgress.current = true;
+        try {
+            await supabase.auth.signOut();
+        } finally {
+            setProfile(null);
+            setTenantId(null);
+            setUser(null);
+            setSession(null);
+            isSignOutInProgress.current = false;
+        }
     };
 
     return (
-        <AuthContext.Provider value={{ session, user, profile, loading, signOut }}>
+        <AuthContext.Provider value={{ session, user, profile, tenantId, loading, signOut }}>
             {children}
         </AuthContext.Provider>
     );

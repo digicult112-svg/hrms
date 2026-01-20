@@ -60,9 +60,15 @@ export default function AttendancePage() {
 
             let query = supabase
                 .from('attendance_logs')
-                .select('clock_in, clock_out, work_date')
-                .gte('work_date', startOfLastWeek.toISOString().split('T')[0])
-                .lte('work_date', today.toISOString().split('T')[0]);
+                .select(`
+                    clock_in, 
+                    clock_out, 
+                    work_date,
+                    profiles:user_id!inner(deleted_at)
+                `)
+                .is('profiles.deleted_at', null)
+                .gte('work_date', toLocalISOString(startOfLastWeek))
+                .lte('work_date', toLocalISOString(today));
 
             if (viewMode === 'my') {
                 query = query.eq('user_id', user?.id);
@@ -74,7 +80,7 @@ export default function AttendancePage() {
             let currentWeekMinutes = 0;
             let lastWeekMinutes = 0;
 
-            const currentWeekStartStr = startOfCurrentWeek.toISOString().split('T')[0];
+            const currentWeekStartStr = toLocalISOString(startOfCurrentWeek);
 
             data?.forEach((log: any) => {
                 if (log.clock_in && log.clock_out) {
@@ -121,13 +127,14 @@ export default function AttendancePage() {
                 .from('attendance_logs')
                 .select(`
                     *,
-                    profiles:user_id (
+                    profiles:user_id!inner (
                         full_name,
                         email,
-                        designation,
-                        avatar_url
+                        avatar_url,
+                        deleted_at
                     )
                 `)
+                .is('profiles.deleted_at', null)
                 .order('work_date', { ascending: false });
 
             // If we are HR and in 'all' mode, we fetch everyone.

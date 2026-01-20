@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString } from '../utils/date';
 import { X, Search } from 'lucide-react';
 import SafeAvatar from './SafeAvatar';
 
@@ -26,7 +27,7 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
     const [searchTerm, setSearchTerm] = useState('');
     const [markingAbsent, setMarkingAbsent] = useState<string | null>(null);
 
-    const dateStr = date.toISOString().split('T')[0];
+    const dateStr = toLocalISOString(date);
 
     useEffect(() => {
         if (isOpen) {
@@ -154,8 +155,8 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
                 .insert({
                     user_id: employeeId,
                     work_date: dateStr,
-                    clock_in: `${dateStr}T09:00:00`,
-                    clock_out: `${dateStr}T17:00:00`,
+                    clock_in: `${dateStr} T09:00:00`,
+                    clock_out: `${dateStr} T17:00:00`,
                     mode: 'onsite'
                 });
 
@@ -187,7 +188,7 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
                 end_date: dateStr,
                 reason: 'Unexcused Absence',
                 status: 'approved', // Auto-approve
-                hr_comment: `Marked absent by HR on ${new Date().toLocaleDateString()}`
+                hr_comment: `Marked absent by HR on ${new Date().toLocaleDateString()} `
             });
 
             if (error) throw error;
@@ -211,7 +212,7 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
         const pendingCount = stats.unaccounted;
         if (pendingCount === 0) return;
 
-        if (!confirm(`Are you sure you want to mark ALL ${pendingCount} pending employees as ABSENT for ${date.toLocaleDateString()}?`)) return;
+        if (!confirm(`Are you sure you want to mark ALL ${pendingCount} pending employees as ABSENT for ${date.toLocaleDateString()} ? `)) return;
 
         setLoading(true);
         try {
@@ -310,10 +311,10 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
                                     <div>
                                         <div className="font-medium text-gray-900 dark:text-white">{emp.full_name}</div>
                                         <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                                            {emp.status === 'present' && `Clocked in at ${emp.details}`}
-                                            {emp.status === 'leave' && `On Leave: ${emp.details}`}
+                                            {emp.status === 'present' && `Clocked in at ${emp.details} `}
+                                            {emp.status === 'leave' && `On Leave: ${emp.details} `}
                                             {emp.status === 'absent_marked' && <span className="text-red-500 font-medium">Marked Absent</span>}
-                                            {emp.status === 'holiday' && `Holiday: ${emp.details}`}
+                                            {emp.status === 'holiday' && `Holiday: ${emp.details} `}
                                             {emp.status === 'absent' && 'No Record Found'}
                                         </div>
                                     </div>
@@ -326,8 +327,8 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
 
                                     {(emp.status === 'leave' || emp.status === 'absent_marked') && (
                                         <>
-                                            <span className={`px-3 py-1 text-xs font-bold rounded-full ${emp.status === 'leave' ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300' : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300'
-                                                }`}>
+                                            <span className={`px - 3 py - 1 text - xs font - bold rounded - full ${emp.status === 'leave' ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300' : 'bg-red-100 dark:bg-red-900/20 text-red-700 dark:text-red-300'
+                                                } `}>
                                                 {emp.status === 'leave' ? 'Leave' : 'Absent'}
                                             </span>
                                             {/* Allow overriding Leave/Absent with Present */}

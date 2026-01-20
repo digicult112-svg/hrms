@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
-import { X, Download, FileText } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { toLocalISOString } from '../utils/date';
+import { X, Download, FileText } from 'lucide-react';
+import { logAction } from '../lib/logger';
+import { useAuth } from '../context/AuthContext';
 import type { Profile } from '../types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -12,6 +15,7 @@ interface ExportAttendanceModalProps {
 }
 
 export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttendanceModalProps) {
+    const { user } = useAuth();
     const [employees, setEmployees] = useState<Partial<Profile>[]>([]);
     const [selectedEmployee, setSelectedEmployee] = useState<string>('all');
     const [dateRangeType, setDateRangeType] = useState<'daily' | 'monthly' | 'custom'>('monthly');
@@ -26,9 +30,8 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
             fetchEmployees();
 
             // Set defaults
-            const today = new Date();
-            setStartDate(today.toISOString().split('T')[0]);
-            setEndDate(today.toISOString().split('T')[0]);
+            setStartDate(toLocalISOString());
+            setEndDate(toLocalISOString());
         }
     }, [isOpen]);
 
@@ -46,17 +49,17 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
             let query = supabase
                 .from('attendance_logs')
                 .select(`
-                    work_date,
-                    clock_in,
-                    clock_out,
-                    mode,
-                    status,
-                    user_id,
-                    profiles!attendance_logs_user_id_fkey (
-                        full_name,
-                        email,
-                        designation
-                    )
+work_date,
+    clock_in,
+    clock_out,
+    mode,
+    status,
+    user_id,
+    profiles!attendance_logs_user_id_fkey(
+        full_name,
+        email,
+        designation
+    )
                 `)
                 .order('work_date', { ascending: false });
 
@@ -72,8 +75,8 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
                 // startDate is expected to be "YYYY-MM"
                 // Construct range for the whole month
                 const [year, month] = startDate.split('-').map(Number);
-                const start = new Date(year, month - 1, 1).toISOString().split('T')[0];
-                const end = new Date(year, month, 0).toISOString().split('T')[0];
+                const start = toLocalISOString(new Date(year, month - 1, 1));
+                const end = toLocalISOString(new Date(year, month, 0));
 
                 query = query.gte('work_date', start).lte('work_date', end);
             } else if (dateRangeType === 'custom') {
@@ -94,6 +97,17 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
             } else {
                 generatePDF(data);
             }
+
+            // Log Export
+            await logAction(user?.id || '', 'REPORT_EXPORTED', 'attendance_logs', {
+                format: exportFormat,
+                type: 'attendance_report',
+                selected_employee: selectedEmployee,
+                range_type: dateRangeType,
+                start_date: startDate,
+                end_date: endDate,
+                timestamp: new Date().toISOString()
+            });
 
             onClose();
 
@@ -116,7 +130,7 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
         const diffMins = Math.floor(diffMs / 60000);
         const hours = Math.floor(diffMins / 60);
         const minutes = diffMins % 60;
-        return `${hours}h ${minutes}m`;
+        return `${hours}h ${minutes} m`;
     };
 
     const generateCSV = (logs: any[]) => {
@@ -141,7 +155,7 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
         const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
-        link.download = `Attendance_Report_${new Date().toISOString().split('T')[0]}.csv`;
+        link.download = `Attendance_Report_${toLocalISOString()}.csv`;
         link.click();
     };
 
@@ -153,9 +167,9 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
         doc.text('Attendance Report', 14, 20);
 
         doc.setFontSize(10);
-        doc.text(`Generated on: ${new Date().toLocaleString()}`, 14, 28);
+        doc.text(`Generated on: ${new Date().toLocaleString()} `, 14, 28);
 
-        let subtext = `Range: ${dateRangeType.toUpperCase()}`;
+        let subtext = `Range: ${dateRangeType.toUpperCase()} `;
         if (dateRangeType === 'daily') subtext += ` (${startDate})`;
         if (dateRangeType === 'monthly') subtext += ` (${startDate})`; // actually year-month
         if (dateRangeType === 'custom') subtext += ` (${startDate} to ${endDate})`;
@@ -164,7 +178,7 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
         const empName = selectedEmployee === 'all' ? 'All Employees'
             : employees.find(e => e.id === selectedEmployee)?.full_name || 'Unknown';
 
-        doc.text(`Employee: ${empName}`, 14, 34);
+        doc.text(`Employee: ${empName} `, 14, 34);
         doc.text(subtext, 14, 40);
 
         // Table
@@ -190,7 +204,7 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
             styles: { fontSize: 9 }
         });
 
-        doc.save(`Attendance_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+        doc.save(`Attendance_Report_${toLocalISOString()}.pdf`);
     };
 
     if (!isOpen) return null;
@@ -236,10 +250,10 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
                                 <button
                                     key={type}
                                     onClick={() => setDateRangeType(type)}
-                                    className={`py-2 rounded-lg text-sm font-medium capitalize transition-all ${dateRangeType === type
+                                    className={`py - 2 rounded - lg text - sm font - medium capitalize transition - all ${dateRangeType === type
                                         ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-200 dark:shadow-none'
                                         : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                                        }`}
+                                        } `}
                                 >
                                     {type}
                                 </button>
@@ -301,7 +315,7 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Export Format</label>
                         <div className="flex gap-4">
-                            <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${exportFormat === 'csv' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                            <label className={`flex - 1 flex items - center justify - center gap - 2 p - 3 rounded - xl border - 2 cursor - pointer transition - all ${exportFormat === 'csv' ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300' : 'border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'} `}>
                                 <input
                                     type="radio"
                                     name="format"
@@ -314,7 +328,7 @@ export default function ExportAttendanceModal({ isOpen, onClose }: ExportAttenda
                                 <span className="font-medium">CSV (Excel)</span>
                             </label>
 
-                            <label className={`flex-1 flex items-center justify-center gap-2 p-3 rounded-xl border-2 cursor-pointer transition-all ${exportFormat === 'pdf' ? 'border-red-500 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' : 'border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'}`}>
+                            <label className={`flex - 1 flex items - center justify - center gap - 2 p - 3 rounded - xl border - 2 cursor - pointer transition - all ${exportFormat === 'pdf' ? 'border-red-500 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' : 'border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800'} `}>
                                 <input
                                     type="radio"
                                     name="format"

@@ -32,7 +32,7 @@ export default function NotificationCenter() {
                     {
                         event: 'INSERT',
                         schema: 'public',
-                        table: 'pending_notifications',
+                        table: 'notifications',
                         filter: `user_id=eq.${user.id}`
                     },
                     (payload) => {
@@ -100,7 +100,7 @@ export default function NotificationCenter() {
     const fetchNotifications = async () => {
         if (!user) return;
         const { data } = await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .select('*')
             .eq('user_id', user.id)
             .order('created_at', { ascending: false })
@@ -118,7 +118,7 @@ export default function NotificationCenter() {
         setUnreadCount(prev => Math.max(0, prev - 1));
 
         await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .update({ is_read: true })
             .eq('id', id);
     };
@@ -131,7 +131,7 @@ export default function NotificationCenter() {
         setUnreadCount(0);
 
         await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .update({ is_read: true })
             .in('id', unreadIds);
     };
@@ -144,7 +144,7 @@ export default function NotificationCenter() {
         }
 
         await supabase
-            .from('pending_notifications')
+            .from('notifications')
             .delete()
             .eq('id', id);
     };
