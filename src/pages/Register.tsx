@@ -72,10 +72,10 @@ export default function Register() {
                 </div>
 
                 <h1 className="text-2xl font-bold text-center text-gray-900 dark:text-white mb-2">
-                    Admin Registration
+                    Employee Registration
                 </h1>
                 <p className="text-center text-gray-600 dark:text-gray-400 mb-8">
-                    Create a temporary admin account
+                    Create your employee account
                 </p>
 
                 {error && (
@@ -129,19 +129,12 @@ export default function Register() {
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Minimum 6 characters</p>
                     </div>
 
-                    <div>
+                    {/* Role selection removed for security. All opens signups are Employees. */}
+                    <div className="hidden">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             Role
                         </label>
-                        <select
-                            value={formData.role}
-                            onChange={(e) => setFormData({ ...formData, role: e.target.value as 'hr' | 'employee' | 'admin' })}
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
-                        >
-                            <option value="hr">HR</option>
-                            <option value="employee">Employee</option>
-                            <option value="admin">Admin</option>
-                        </select>
+                        <input type="text" value="employee" disabled className="hidden" />
                     </div>
 
                     <button

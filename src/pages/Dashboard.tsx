@@ -182,7 +182,7 @@ export default function Dashboard() {
                                 <Announcements />
                             </div>
 
-                            <div className="lg:col-span-1">
+                            <div className="lg:col-span-1 space-y-8">
                                 <div className="bg-gradient-to-br from-purple-600 to-indigo-700 rounded-[2.5rem] p-6 text-white shadow-2xl shadow-purple-900/20 relative overflow-hidden h-fit flex flex-col sticky top-8">
                                     <div className="relative z-10">
                                         <div className="mb-4 w-20 h-20 rounded-full bg-white/20 backdrop-blur-md border-2 border-white/30 flex items-center justify-center overflow-hidden shadow-2xl">

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
 import { X, Loader2, GraduationCap, Briefcase, MapPin, Building2, User } from 'lucide-react';
 
 interface CreateEmployeeModalProps {
@@ -10,6 +11,7 @@ interface CreateEmployeeModalProps {
 }
 
 export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: CreateEmployeeModalProps) {
+    const { tenantId } = useAuth();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [formData, setFormData] = useState({
@@ -56,6 +58,13 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
         setLoading(true);
 
         try {
+            // Use tenantId from AuthContext
+            if (!tenantId) {
+                throw new Error('Could not determine organization. Please try logging out and back in.');
+            }
+
+            const hrTenantId = tenantId;
+
             // Create a temporary client for the signup process
             // This allows us to create a new user without logging out the current admin
             const tempClient = createClient(
@@ -71,7 +80,7 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
             );
 
             // Create the auth user with metadata
-            // The database trigger will automatically create the profile
+            // The database trigger will automatically create the profile with all fields
             const { data: authData, error: signUpError } = await tempClient.auth.signUp({
                 email: formData.workEmail || formData.personalEmail,
                 password: formData.password,
@@ -79,6 +88,15 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
                     data: {
                         full_name: formData.fullName,
                         role: formData.role,
+                        tenant_id: hrTenantId,
+                        designation: formData.designation || null,
+                        phone: formData.phone || null,
+                        work_email: formData.workEmail || null,
+                        personal_email: formData.personalEmail || null,
+                        education: formData.education || null,
+                        address: formData.address || null,
+                        date_of_birth: formData.dateOfBirth || null,
+                        daily_work_hours: formData.dailyWorkHours,
                     }
                 }
             });
@@ -86,20 +104,14 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
             if (signUpError) throw signUpError;
             if (!authData.user) throw new Error('No user returned from signup');
 
-            // If the user was created successfully but email confirmation is enabled,
-            // we should let the HR know.
-            // Note: Since we are using the standard signup, we can't auto-confirm 
-            // without the service role key. The user will receive an email.
+            // Wait a moment for the trigger to create the profile
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            // We can try to update the profile immediately if RLS allows it (it might not if the user isn't confirmed/logged in)
-            // But the trigger should have handled the creation.
-            // Any additional updates (phone, designation) might need to wait or be handled by the user later
-            // OR we can try to update it using the admin's session if we have RLS policies that allow HR to update profiles.
-
-            // Let's try to update the additional details using the MAIN client (authenticated as HR)
+            // Update the profile with additional details using the MAIN client (authenticated as HR)
             const { error: updateError } = await supabase
                 .from('profiles')
                 .update({
+                    tenant_id: hrTenantId, // Ensure tenant_id is set
                     phone: formData.phone || null,
                     designation: formData.designation || null,
                     daily_work_hours: formData.dailyWorkHours,
@@ -115,7 +127,8 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
                 .eq('id', authData.user.id);
 
             if (updateError) {
-                console.warn('Could not update additional profile details immediately:', updateError);
+                console.warn('Could not update additional profile details:', updateError);
+                // Don't throw - user was created, just some fields weren't updated
             }
 
             // [NEW] Update Salary in separate table
@@ -153,7 +166,16 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
             onClose();
         } catch (err: any) {
             console.error('Error creating employee:', err);
-            setError(err.message || 'Failed to create employee');
+            // Provide more helpful error messages
+            let errorMessage = err.message || 'Failed to create employee';
+            if (errorMessage.includes('User already registered')) {
+                errorMessage = 'An account with this email already exists.';
+            } else if (errorMessage.includes('violates row-level security')) {
+                errorMessage = 'Permission denied. Please try logging out and back in.';
+            } else if (errorMessage.includes('Invalid login credentials')) {
+                errorMessage = 'Email confirmation may be required. Please check Supabase settings.';
+            }
+            setError(errorMessage);
         } finally {
             setLoading(false);
         }

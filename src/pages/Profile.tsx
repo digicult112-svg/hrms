@@ -5,6 +5,8 @@ import type { Profile } from '../types';
 import { Mail, Briefcase, Phone, Calendar, Camera, Trash2, History, PlusCircle } from 'lucide-react';
 import EmployeeHistoryModal from '../components/EmployeeHistoryModal';
 import ManageExperienceModal from '../components/ManageExperienceModal';
+import PointsHistoryList from '../components/PointsHistoryList';
+import { Star } from 'lucide-react';
 
 const compressImage = (file: File): Promise<File> => {
     return new Promise((resolve, reject) => {
@@ -390,6 +392,17 @@ export default function ProfilePage() {
                             </div>
                         </div>
                     )}
+
+                    {/* Recognition Points Section */}
+                    <div className="mt-8 pt-8 border-t border-gray-100 dark:border-gray-800 animate-in slide-in-from-bottom-2 fade-in duration-700">
+                        <div className="flex items-center justify-between mb-6">
+                            <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                                Recognition History
+                            </h3>
+                        </div>
+                        <PointsHistoryList userId={profile?.id || ''} />
+                    </div>
                 </div>
             </div>
 

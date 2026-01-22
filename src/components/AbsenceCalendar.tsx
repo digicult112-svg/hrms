@@ -39,10 +39,9 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
         const endDate = toLocalISOString(new Date(year, month + 1, 0));
 
         try {
-            // 1. Fetch Attendance Logs
             let queryLogs = supabase
                 .from('attendance_logs')
-                .select('work_date, user_id')
+                .select('work_date, user_id, status')
                 .gte('work_date', startDate)
                 .lte('work_date', endDate);
 
@@ -76,7 +75,8 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
                 // Ignore future attendance logs (likely bad data)
                 if (log.work_date > todayStr) return;
 
-                if (statsMap[log.work_date]) {
+                // Only count as present if log is approved
+                if (statsMap[log.work_date] && log.status === 'approved') {
                     statsMap[log.work_date].present++;
                     if (userId) statsMap[log.work_date].status = 'present';
                 }

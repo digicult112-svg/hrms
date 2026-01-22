@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import type { Payroll } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Download, Plus, X, IndianRupee, Search, Save, Trash2, RotateCcw } from 'lucide-react';
+import { Download, Plus, X, IndianRupee, Search, Save, Trash2, RotateCcw, ShieldCheck } from 'lucide-react';
 import jsPDF from 'jspdf';
 import { getImageDetails } from '../utils/export';
 import autoTable from 'jspdf-autotable';
@@ -384,7 +384,7 @@ export default function PayrollPage() {
                 if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
 
                 const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-                const perDaySalary = Number(baseSalary) / 30; // Standard 30 days
+                const perDaySalary = Number(baseSalary) / totalDaysInCycle; // Dynamic divisor fix
                 let deductions = Math.round(lopDays * perDaySalary);
 
                 let taxAmount = 0;
@@ -634,7 +634,7 @@ export default function PayrollPage() {
             if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
 
             const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-            const perDaySalary = p.base_salary / 30; // Standard 30 days calculation
+            const perDaySalary = p.base_salary / totalDaysInCycle; // Dynamic divisor fix
             const calculatedLopAmount = Math.round(lopDays * perDaySalary);
 
             let calculatedTax = 0;
@@ -943,6 +943,12 @@ export default function PayrollPage() {
                                         <td className="px-6 py-4 text-green-600 dark:text-green-400">+{formatCurrency(p.allowances)}</td>
                                         <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
                                             {formatCurrency(calculateNetSalary(p))}
+                                            {p.metadata?.server_calculated && (
+                                                <div className="flex items-center gap-1 mt-1 text-[10px] uppercase font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-1.5 py-0.5 rounded w-fit">
+                                                    <ShieldCheck className="w-3 h-3" />
+                                                    Verified
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-6 py-4">
                                             <button

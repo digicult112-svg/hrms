@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Outlet, useNavigate, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ThemeToggle } from './ThemeToggle';
-import { LogOut, LayoutDashboard, Users, Clock, Calendar, DollarSign, Briefcase, FileText, Shield, Menu, X, LifeBuoy, MessageSquare, ShieldAlert } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Clock, Calendar, DollarSign, Briefcase, FileText, Shield, Menu, X, LifeBuoy, MessageSquare, ShieldAlert, Trophy } from 'lucide-react';
 import { Mail } from 'lucide-react';
 import SafeAvatar from './SafeAvatar';
 import { CommandPalette } from './CommandPalette';
@@ -176,6 +176,16 @@ export default function Layout() {
                                 <MessageSquare className="w-5 h-5 mr-3" />
                                 Feedback
                             </Link>
+
+                            <Link
+                                to="/points-ledger"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/points-ledger')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <Trophy className="w-5 h-5 mr-3" />
+                                Recognition Ledger
+                            </Link>
                         </>
                     )}
 
@@ -220,6 +230,16 @@ export default function Layout() {
                             >
                                 <Mail className="w-5 h-5 mr-3" />
                                 Communication
+                            </Link>
+
+                            <Link
+                                to="/points"
+                                className={`flex items-center px-4 py-2 rounded-lg transition-colors ${isActive('/points')
+                                    ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:text-purple-300 font-medium'
+                                    : 'text-gray-700 dark:text-gray-400 hover:bg-purple-50/50 dark:hover:bg-gray-800 hover:text-purple-600 dark:hover:text-purple-300'}`}
+                            >
+                                <Trophy className="w-5 h-5 mr-3" />
+                                Recognition
                             </Link>
                         </>
                     )}

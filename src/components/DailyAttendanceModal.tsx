@@ -47,10 +47,9 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
 
             if (profileError) throw profileError;
 
-            // 2. Fetch Attendance for this date
             const { data: attendance, error: attError } = await supabase
                 .from('attendance_logs')
-                .select('user_id, clock_in')
+                .select('user_id, clock_in, status')
                 .eq('work_date', dateStr);
 
             if (attError) throw attError;
@@ -78,9 +77,9 @@ export default function DailyAttendanceModal({ isOpen, onClose, date, onUpdate }
 
             // 5. Merge Data
             const merged: DailyStatus[] = (profiles || []).map(p => {
-                // Check attendance
+                // Check attendance - only approved logs count as present
                 const log = attendance?.find(a => a.user_id === p.id);
-                if (log) {
+                if (log && log.status === 'approved') {
                     return {
                         user_id: p.id,
                         full_name: p.full_name,

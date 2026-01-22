@@ -15,6 +15,8 @@ import Helpdesk from './pages/Helpdesk';
 import EmailCommunication from './pages/EmailCommunication';
 import AdminDashboard from './pages/AdminDashboard';
 import Feedback from './pages/Feedback';
+import PointsManagement from './pages/PointsManagement';
+import PointsLedger from './pages/PointsLedger';
 
 import AuditLogsPage from './pages/AuditLogs';
 import Layout from './components/Layout';
@@ -95,6 +97,15 @@ function App() {
                     </PrivateRoute>
                   }
                 />
+                <Route
+                  path="/points"
+                  element={
+                    <PrivateRoute roles={['hr']}>
+                      <PointsManagement />
+                    </PrivateRoute>
+                  }
+                />
+                <Route path="/points-ledger" element={<PointsLedger />} />
               </Route>
 
               <Route path="*" element={<Navigate to="/" replace />} />

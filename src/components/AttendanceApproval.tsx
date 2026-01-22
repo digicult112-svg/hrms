@@ -100,12 +100,12 @@ id,
                             user_id: request.user_id,
                             start_date: toLocalISOString(new Date(request.clock_in)),
                             end_date: toLocalISOString(new Date(request.clock_in)),
-                            reason: `WFH Request Rejected: ${request.wfh_reason} `,
+                            reason: 'Unexcused Absence',
                             status: 'approved', // Auto-approve leave since HR rejected work
-                            hr_comment: 'Automatically created upon WFH rejection'
+                            hr_comment: `WFH Request Rejected: ${request.wfh_reason}`
                         });
 
-                    if (leaveError) console.error('Error creating leave record:', leaveError);
+                    if (leaveError) throw leaveError;
                 }
             } else {
                 // For approval, auto-complete the shift based on employee's work hours
@@ -147,7 +147,7 @@ id,
                     await notifyUser(
                         request.user_id,
                         'WFH Request Rejected',
-                        `Your Work From Home request has been rejected.A leave record has been created automatically.`,
+                        `Your WFH request for ${new Date(request.clock_in).toLocaleDateString()} was rejected and you've been marked as Absent.`,
                         'error'
                     );
                 }
