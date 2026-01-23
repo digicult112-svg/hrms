@@ -78,7 +78,7 @@ const CandidateCard = React.memo(({ candidate, index, onDelete }: { candidate: C
 });
 
 export default function CandidatesPage() {
-    const { user } = useAuth();
+    const { user, tenantId } = useAuth();
     const [candidates, setCandidates] = useState<CandidateWithJob[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [jobs, setJobs] = useState<JobPosition[]>([]);
@@ -172,6 +172,7 @@ export default function CandidatesPage() {
         setLoading(true);
 
         try {
+            // Include tenant_id from auth context
             const { data, error } = await supabase
                 .from('candidates')
                 .insert([{
@@ -179,6 +180,7 @@ export default function CandidatesPage() {
                     email: formData.email,
                     phone: formData.phone,
                     job_id: formData.job_id,
+                    tenant_id: tenantId,
                     status: 'applied'
                 }])
                 .select('*, job:job_positions(*)')

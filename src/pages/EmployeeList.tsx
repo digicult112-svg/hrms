@@ -82,16 +82,16 @@ export default function EmployeeList() {
         if (!confirm(`Are you sure you want to ${action} ${employee.full_name}'s login access?`)) return;
 
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({ is_frozen: !employee.is_frozen })
-                .eq('id', employee.id);
+            // Use RPC function to bypass RLS issues
+            const { data, error } = await supabase
+                .rpc('toggle_employee_freeze', { employee_id: employee.id });
 
             if (error) throw error;
 
-            // Refresh list
+            // Update local state with the returned status
+            const newFreezeStatus = data?.is_frozen ?? !employee.is_frozen;
             setEmployees(employees.map(e =>
-                e.id === employee.id ? { ...e, is_frozen: !employee.is_frozen } : e
+                e.id === employee.id ? { ...e, is_frozen: newFreezeStatus } : e
             ));
         } catch (error: any) {
             console.error('Error updating status:', error);
