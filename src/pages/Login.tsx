@@ -27,7 +27,7 @@ export default function Login() {
             if (data.user) {
                 const { data: profile } = await supabase
                     .from('profiles')
-                    .select('is_frozen')
+                    .select('is_frozen, role')
                     .eq('id', data.user.id)
                     .single();
 
@@ -35,10 +35,15 @@ export default function Login() {
                     await supabase.auth.signOut();
                     throw new Error('Your account has been frozen by the administrator. Access denied.');
                 }
-            }
 
-            success('Welcome back!', 'You have successfully signed in.');
-            navigate('/');
+                success('Welcome back!', 'You have successfully signed in.');
+
+                if (profile?.role === 'admin') {
+                    navigate('/admin-dashboard');
+                } else {
+                    navigate('/');
+                }
+            }
         } catch (err: any) {
             toastError('Login Failed', err.message);
         } finally {

@@ -14,7 +14,7 @@ export default function Register() {
         email: '',
         password: '',
         fullName: '',
-        role: 'hr'
+        role: 'employee'
     });
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -129,12 +129,19 @@ export default function Register() {
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Minimum 6 characters</p>
                     </div>
 
-                    {/* Role selection removed for security. All opens signups are Employees. */}
-                    <div className="hidden">
+                    <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                             Role
                         </label>
-                        <input type="text" value="employee" disabled className="hidden" />
+                        <select
+                            value={formData.role}
+                            onChange={(e) => setFormData({ ...formData, role: e.target.value as 'hr' | 'employee' | 'admin' })}
+                            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                        >
+                            <option value="employee">Employee</option>
+                            <option value="hr">HR</option>
+                            <option value="admin">Admin</option>
+                        </select>
                     </div>
 
                     <button
@@ -142,7 +149,7 @@ export default function Register() {
                         disabled={loading}
                         className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed font-medium"
                     >
-                        {loading ? 'Creating Account...' : 'Create Admin Account'}
+                        {loading ? 'Creating Account...' : 'Create Account'}
                     </button>
                 </form>
 

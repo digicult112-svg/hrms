@@ -53,7 +53,7 @@ export default function PayrollPage() {
 
     useEffect(() => {
         fetchPayrolls();
-        if (profile?.role === 'hr') {
+        if (profile?.role === 'hr' || profile?.role === 'admin') {
             fetchEmployees();
         }
     }, [user, profile]);
@@ -62,7 +62,7 @@ export default function PayrollPage() {
         try {
             const { data, error } = await supabase
                 .from('profiles')
-                .select('id, full_name, email, salary_record:salaries(amount)')
+                .select('id, full_name, email, tenant_id, salary_record:salaries(amount)')
                 .is('deleted_at', null)
                 .order('full_name');
 
@@ -82,7 +82,7 @@ export default function PayrollPage() {
                 .order('year', { ascending: false })
                 .order('month', { ascending: false });
 
-            if (profile?.role !== 'hr') {
+            if (profile?.role !== 'hr' && profile?.role !== 'admin') {
                 query = query.eq('user_id', user?.id);
             }
 
@@ -102,11 +102,14 @@ export default function PayrollPage() {
         setGenerating(true);
 
         try {
-            // 1. Call the atomic RPC to generate payroll (this handles versioning/superseding)
+            // 2. Call the atomic RPC to generate payroll
             const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
                 payroll_records: [{
-                    user_id: selectedEmployee
-                    // Server will fetch the latest Salary from profile and calculate LOP/Tax
+                    user_id: selectedEmployee,
+                    base_salary: parseFloat(baseSalary), // Pass explicitly
+                    hra: parseFloat(hra),
+                    allowances: parseFloat(allowances),
+                    deductions: parseFloat(deductions)
                 }],
                 target_month: month,
                 target_year: year
@@ -280,7 +283,7 @@ export default function PayrollPage() {
             // 2. Fetch Employees
             const { data: employeesData, error: empError } = await supabase
                 .from('profiles')
-                .select('*')
+                .select('*, salary_record:salaries(amount)')
                 .is('deleted_at', null);
 
             if (empError) throw empError;
@@ -324,11 +327,39 @@ export default function PayrollPage() {
 
             if (holError) throw holError;
 
+            // 5a. Fetch Latest Payrolls (for fallback/continuity)
+            const { data: latestPayrolls } = await supabase
+                .from('payroll')
+                .select('user_id, base_salary, hra, allowances')
+                .eq('is_current', true);
+
             // 6. Calculate Payroll
             const calculatedRecords: any[] = [];
 
             for (const emp of employeesData || []) {
-                const baseSalary = emp.salary_record?.amount || 0;
+                // Resolve Base Salary: Master Table > Previous Payroll > 0
+                let baseSalary = emp.salary_record?.amount || 0;
+                let hra = 0;
+                let allowances = 0;
+
+                // Try to find previous record to fill gaps or carry over HRA/Allowances
+                const prevRecord = latestPayrolls?.find(p => p.user_id === emp.id);
+
+                if (baseSalary === 0 && prevRecord) {
+                    baseSalary = prevRecord.base_salary || 0;
+                }
+
+                // If we have a base salary, determine HRA/Allowances
+                if (baseSalary > 0) {
+                    if (prevRecord) {
+                        hra = prevRecord.hra || 0;
+                        allowances = prevRecord.allowances || 0;
+                    } else {
+                        // Default Logic for new employees
+                        hra = Math.round(baseSalary * 0.40); // 40% HRA default
+                        allowances = 0;
+                    }
+                }
 
                 // Fetch Attendance
                 const { data: attendance } = await supabase
@@ -383,8 +414,13 @@ export default function PayrollPage() {
                 let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
                 if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
 
+                // DEFAULT TO PRESENT Strategy
+                if (presentDays === 0) {
+                    paidDays = totalDaysInCycle;
+                }
+
                 const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-                const perDaySalary = Number(baseSalary) / totalDaysInCycle; // Dynamic divisor fix
+                const perDaySalary = totalDaysInCycle > 0 ? Number(baseSalary) / totalDaysInCycle : 0;
                 let deductions = Math.round(lopDays * perDaySalary);
 
                 let taxAmount = 0;
@@ -396,13 +432,13 @@ export default function PayrollPage() {
                     deductions += taxAmount;
                 }
 
-                const netSalary = baseSalary - deductions;
+                const netSalary = Number(baseSalary) + Number(hra) + Number(allowances) - deductions;
 
                 calculatedRecords.push({
                     user_id: emp.id,
                     base_salary: baseSalary,
-                    hra: 0,
-                    allowances: 0,
+                    hra: hra,
+                    allowances: allowances,
                     deductions: deductions,
                     net_salary: netSalary,
                     metadata: {
@@ -441,7 +477,12 @@ export default function PayrollPage() {
         setGeneratingAll(true);
         try {
             const payrollRecordsForDb = previewData.records.map((rec: any) => ({
-                user_id: rec.user_id
+                user_id: rec.user_id,
+                base_salary: rec.base_salary,
+                hra: rec.hra,
+                allowances: rec.allowances,
+                deductions: rec.deductions,
+                metadata: rec.metadata
             }));
 
             const { data: rpcResult, error: rpcError } = await supabase.rpc('generate_payroll_batch', {
@@ -475,7 +516,8 @@ export default function PayrollPage() {
                     year: year,
                     base: rec.base_salary,
                     deductions: rec.deductions,
-                    net: rec.net_salary
+                    net: rec.net_salary,
+                    metadata: rec.metadata
                 }));
 
             if (emailsToSend.length > 0) {
@@ -484,12 +526,40 @@ export default function PayrollPage() {
                 for (const emailData of emailsToSend) {
                     try {
                         const html = `
-                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333;">
-                                <h2 style="color: #2563eb;">Payslip for ${emailData.monthName} ${emailData.year}</h2>
+                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #333; line-height: 1.6;">
+                                <h2 style="color: #2563eb; text-align: center;">Payslip for ${emailData.monthName} ${emailData.year}</h2>
+                                
                                 <p>Hi ${emailData.name},</p>
-                                <p>Your payslip has been generated.</p>
-                                <p>Net Salary: <strong>₹${emailData.net.toLocaleString('en-IN')}</strong></p>
-                                <p style="margin-top: 20px; font-size: 14px; color: #666;">Regards,<br>HR Team</p>
+                                <p>Your payslip for <strong>${emailData.monthName} ${emailData.year}</strong> has been generated.</p>
+                                
+                                <table style="width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid #e5e7eb;">
+                                    <thead>
+                                        <tr style="background-color: #f9fafb;">
+                                            <th style="padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; color: #374151;">Description</th>
+                                            <th style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; color: #374151;">Amount</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">Base Salary</td>
+                                            <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb;">₹${emailData.base.toLocaleString('en-IN')}</td>
+                                        </tr>
+                                        <tr>
+                                            <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; color: #dc2626;">Deductions</td>
+                                            <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; color: #dc2626;">-₹${emailData.deductions.toLocaleString('en-IN')}</td>
+                                        </tr>
+                                        <tr style="background-color: #eff6ff; font-weight: bold; color: #1e3a8a;">
+                                            <td style="padding: 12px;">Net Salary</td>
+                                            <td style="padding: 12px; text-align: right;">₹${emailData.net.toLocaleString('en-IN')}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+
+                                ${emailData.metadata?.lop_days > 0 ?
+                                `<p style="font-size: 13px; color: #6b7280; font-style: italic; margin-top: 5px;">* Includes ${emailData.metadata.lop_days} days Loss of Pay (₹${emailData.metadata.lop_amount || 0})</p>`
+                                : ''}
+
+                                <p style="margin-top: 30px; font-size: 14px; color: #666;">Regards,<br>HR Team</p>
                             </div>
                         `;
                         await sendEmail({
