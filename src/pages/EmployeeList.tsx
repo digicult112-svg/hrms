@@ -78,6 +78,12 @@ export default function EmployeeList() {
     };
 
     const handleFreezeToggle = async (employee: Profile) => {
+        // Prevent HR from freezing admin accounts
+        if (employee.role === 'admin') {
+            alert('❌ Admin accounts cannot be frozen. Only admins can manage other admin accounts.');
+            return;
+        }
+
         const action = employee.is_frozen ? 'unfreeze' : 'freeze';
         if (!confirm(`Are you sure you want to ${action} ${employee.full_name}'s login access?`)) return;
 
@@ -289,17 +295,20 @@ export default function EmployeeList() {
                                                     <Eye className="w-4 h-4 mr-1" />
                                                     View
                                                 </button>
-                                                <button
-                                                    onClick={() => handleFreezeToggle(employee)}
-                                                    className={`flex-1 flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors border border-transparent dark:border-gray-800/30 ${employee.is_frozen
-                                                        ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
-                                                        : 'text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30'
-                                                        }`}
-                                                    title={employee.is_frozen ? "Unfreeze Account" : "Freeze Account"}
-                                                >
-                                                    {employee.is_frozen ? <Unlock className="w-4 h-4 mr-1" /> : <Lock className="w-4 h-4 mr-1" />}
-                                                    {employee.is_frozen ? 'Unfreeze' : 'Freeze'}
-                                                </button>
+                                                {/* Only show freeze button for non-admin accounts */}
+                                                {employee.role !== 'admin' && (
+                                                    <button
+                                                        onClick={() => handleFreezeToggle(employee)}
+                                                        className={`flex-1 flex items-center justify-center px-3 py-2 text-sm rounded-lg transition-colors border border-transparent dark:border-gray-800/30 ${employee.is_frozen
+                                                            ? 'text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30'
+                                                            : 'text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/30'
+                                                            }`}
+                                                        title={employee.is_frozen ? "Unfreeze Account" : "Freeze Account"}
+                                                    >
+                                                        {employee.is_frozen ? <Unlock className="w-4 h-4 mr-1" /> : <Lock className="w-4 h-4 mr-1" />}
+                                                        {employee.is_frozen ? 'Unfreeze' : 'Freeze'}
+                                                    </button>
+                                                )}
                                             </>
                                         )}
                                     </div>

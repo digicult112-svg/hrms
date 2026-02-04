@@ -2,8 +2,14 @@ export type Role = 'hr' | 'employee' | 'admin';
 
 export interface AnonymousMessage {
     id: string;
+    user_id: string;
     message: string;
     created_at: string;
+    profiles?: {
+        full_name: string;
+        email: string;
+        avatar_url?: string;
+    };
 }
 
 export interface Profile {

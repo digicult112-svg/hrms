@@ -16,9 +16,8 @@ export default function AttendanceControl({ onAttendanceUpdate }: { onAttendance
         locationError,
         wfhRejected,
         isPendingApproval,
-        WORK_HOURS_GOAL,
-        percentage,
         handleClockIn,
+        handleClockOut,
         handlePause,
         handleResume,
         formatTime
@@ -45,8 +44,6 @@ export default function AttendanceControl({ onAttendanceUpdate }: { onAttendance
                         <AttendanceTimer
                             status={status}
                             elapsedSeconds={elapsedSeconds}
-                            workHoursGoal={WORK_HOURS_GOAL}
-                            percentage={percentage}
                             formatTime={formatTime}
                         />
                     )}
@@ -61,9 +58,9 @@ export default function AttendanceControl({ onAttendanceUpdate }: { onAttendance
                     loading={loading}
                     locationError={locationError}
                     handleClockIn={handleClockIn}
+                    handleClockOut={handleClockOut}
                     handlePause={handlePause}
                     handleResume={handleResume}
-                    workHoursGoal={WORK_HOURS_GOAL}
                 />
             </div>
         </div>

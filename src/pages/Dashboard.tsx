@@ -5,13 +5,11 @@ import { useAuth } from '../context/AuthContext';
 import AttendanceControl from '../components/AttendanceControl';
 import AttendanceApproval from '../components/AttendanceApproval';
 import OfficeLocationSettings from '../components/OfficeLocationSettings';
-import WorkHoursSettings from '../components/WorkHoursSettings';
 import PayrollSettings from '../components/PayrollSettings';
 import NotificationSettings from '../components/NotificationSettings';
 import WhosWorking from '../components/WhosWorking';
 import SafeAvatar from '../components/SafeAvatar';
 import Announcements from '../components/Announcements';
-import SystemDataSettings from '../components/SystemDataSettings';
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -156,13 +154,11 @@ export default function Dashboard() {
                                 <section>
                                     <Announcements />
                                 </section>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="w-full">
                                     <OfficeLocationSettings />
-                                    <WorkHoursSettings />
                                 </div>
                                 <div className="w-full">
                                     <PayrollSettings />
-                                    <SystemDataSettings />
                                 </div>
                             </div>
 

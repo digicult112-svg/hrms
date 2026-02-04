@@ -1,4 +1,4 @@
-import { Play, MapPin, Briefcase, Loader2, Pause, AlertCircle } from 'lucide-react';
+import { Play, MapPin, Briefcase, Loader2, Pause, AlertCircle, Square } from 'lucide-react';
 import type { AttendanceStatus, AttendanceMode } from '../../types/attendance';
 
 interface AttendanceActionsProps {
@@ -10,9 +10,9 @@ interface AttendanceActionsProps {
     loading: boolean;
     locationError: string | null;
     handleClockIn: () => void;
+    handleClockOut: () => void;
     handlePause: () => void;
     handleResume: () => void;
-    workHoursGoal: number;
 }
 
 export const AttendanceActions = ({
@@ -24,9 +24,9 @@ export const AttendanceActions = ({
     loading,
     locationError,
     handleClockIn,
+    handleClockOut,
     handlePause,
-    handleResume,
-    workHoursGoal
+    handleResume
 }: AttendanceActionsProps) => {
 
     if (status === 'completed') return null;
@@ -100,14 +100,24 @@ export const AttendanceActions = ({
                     <div className="max-w-md mx-auto space-y-4">
                         <div className="space-y-4">
                             {status === 'working' ? (
-                                <button
-                                    onClick={handlePause}
-                                    disabled={loading}
-                                    className="w-full bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 text-gray-900 dark:text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-sm hover:shadow-md"
-                                >
-                                    <Pause className="w-5 h-5 fill-current" />
-                                    Pause
-                                </button>
+                                <>
+                                    <button
+                                        onClick={handlePause}
+                                        disabled={loading}
+                                        className="w-full bg-white dark:bg-gray-800 border-2 border-gray-100 dark:border-gray-700 hover:border-gray-200 dark:hover:border-gray-600 text-gray-900 dark:text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-sm hover:shadow-md"
+                                    >
+                                        <Pause className="w-5 h-5 fill-current" />
+                                        Pause
+                                    </button>
+                                    <button
+                                        onClick={handleClockOut}
+                                        disabled={loading}
+                                        className="w-full bg-red-600 hover:bg-red-700 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-[0.98] shadow-lg shadow-red-600/20"
+                                    >
+                                        <Square className="w-5 h-5 fill-current" />
+                                        End Shift
+                                    </button>
+                                </>
                             ) : (
                                 <button
                                     onClick={handleResume}
@@ -119,9 +129,6 @@ export const AttendanceActions = ({
                                 </button>
                             )}
                         </div>
-                        <p className="text-center text-xs font-medium text-gray-400 uppercase tracking-wide">
-                            Shift ends automatically at {workHoursGoal}h
-                        </p>
                     </div>
                 )
             )}

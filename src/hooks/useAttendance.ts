@@ -33,10 +33,7 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
     const [wfhRejected, setWfhRejected] = useState(false);
     const [isPendingApproval, setIsPendingApproval] = useState(false);
 
-    // Constants
-    const WORK_HOURS_GOAL = profile?.daily_work_hours || 8;
-    const TOTAL_SECONDS_GOAL = WORK_HOURS_GOAL * 3600;
-    const percentage = Math.min((elapsedSeconds / TOTAL_SECONDS_GOAL) * 100, 100);
+    // No work hours goal - employees can work as long as needed
 
     // --- Logic ---
 
@@ -172,12 +169,7 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
                         const diff = (now.getTime() - new Date(data.clock_in).getTime()) / 1000 - (data.total_pause_seconds || 0);
                         const currentElapsed = Math.max(0, diff);
                         setElapsedSeconds(currentElapsed);
-
-                        if (currentElapsed >= TOTAL_SECONDS_GOAL) {
-                            performAutoClockOut(data.id, new Date(data.clock_in), data.total_pause_seconds || 0, TOTAL_SECONDS_GOAL);
-                        } else {
-                            setStatus('working');
-                        }
+                        setStatus('working');
                     }
                 }
             )
@@ -217,40 +209,49 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
                 const diff = (now.getTime() - start.getTime()) / 1000 - pauseSeconds;
                 const currentElapsed = Math.max(0, diff);
                 setElapsedSeconds(currentElapsed);
-
-                if (currentElapsed >= TOTAL_SECONDS_GOAL && todayLogIdRef.current) {
-                    performAutoClockOut(todayLogIdRef.current, start, pauseSeconds, TOTAL_SECONDS_GOAL);
-                }
             }
         }, 100);
 
         return () => clearInterval(interval);
-    }, [TOTAL_SECONDS_GOAL]);
+    }, []);
 
-    const performAutoClockOut = async (logId: string, start: Date, pauseSeconds: number, goalSeconds: number) => {
-        const endTimeMs = start.getTime() + (pauseSeconds * 1000) + (goalSeconds * 1000);
-        const endDate = new Date(endTimeMs);
-        const now = new Date();
-        const clockOutTime = endDate > now ? now : endDate;
+    const handleClockOut = async () => {
+        let currentLogId = todayLogId;
+        if (!currentLogId) {
+            console.log('No active log ID found, refreshing...');
+            const data = await checkTodayAttendance();
+            if (data) currentLogId = data.id;
+            else return;
+        }
+
+        setLoading(true);
 
         try {
-            const { error } = await supabase
-                .from('attendance_logs')
-                .update({
-                    clock_out: clockOutTime.toISOString(),
-                    last_pause_time: null,
-                    total_pause_seconds: pauseSeconds,
-                    total_hours: parseFloat((goalSeconds / 3600).toFixed(2))
-                })
-                .eq('id', logId);
+            const now = new Date();
+            const totalHours = parseFloat((elapsedSeconds / 3600).toFixed(2));
+
+            const { error } = await withTimeout(
+                supabase
+                    .from('attendance_logs')
+                    .update({
+                        clock_out: now.toISOString(),
+                        last_pause_time: null,
+                        total_pause_seconds: totalPauseSeconds,
+                        total_hours: totalHours
+                    })
+                    .eq('id', currentLogId)
+            ) as any;
 
             if (error) throw error;
 
             setStatus('completed');
-            setElapsedSeconds(goalSeconds);
+            success('Shift Ended', `You worked ${totalHours} hours today. Great job!`);
             if (onAttendanceUpdate) onAttendanceUpdate();
-        } catch (error) {
-            console.error('Error performing auto clock out:', error);
+        } catch (error: any) {
+            console.error('Error clocking out:', error);
+            toastError('Clock Out Failed', error.message || 'Please check your connection.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -537,10 +538,8 @@ export const useAttendance = (onAttendanceUpdate?: () => void) => {
         locationError,
         wfhRejected,
         isPendingApproval,
-        WORK_HOURS_GOAL,
-        TOTAL_SECONDS_GOAL,
-        percentage,
         handleClockIn,
+        handleClockOut,
         handlePause,
         handleResume,
         formatTime

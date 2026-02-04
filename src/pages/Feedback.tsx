@@ -1,30 +1,35 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { Send, MessageSquare, ShieldCheck } from 'lucide-react';
+import { Send, MessageSquare, User } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { useAuth } from '../context/AuthContext';
 
 export default function Feedback() {
+    const { user } = useAuth();
     const [message, setMessage] = useState('');
     const [sending, setSending] = useState(false);
     const { success, error: toastError } = useToast();
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!message.trim()) return;
+        if (!message.trim() || !user) return;
 
         setSending(true);
         try {
             const { error } = await supabase
                 .from('anonymous_messages')
-                .insert([{ message: message.trim() }]);
+                .insert([{
+                    message: message.trim(),
+                    user_id: user.id
+                }]);
 
             if (error) throw error;
 
-            success('Message sent successfully!');
+            success('Feedback sent successfully!');
             setMessage('');
         } catch (error: any) {
-            console.error('Error sending message:', error);
-            toastError('Failed to send message');
+            console.error('Error sending feedback:', error);
+            toastError('Failed to send feedback');
         } finally {
             setSending(false);
         }
@@ -36,10 +41,10 @@ export default function Feedback() {
                 <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-2xl mb-4 text-purple-600 dark:text-purple-400">
                     <MessageSquare className="w-8 h-8" />
                 </div>
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">Anonymous Feedback</h1>
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-3">Employee Feedback</h1>
                 <p className="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
                     Send feedback, suggestions, or concerns to the admin.
-                    Your identity will remain <span className="font-bold text-purple-600 dark:text-purple-400">completely anonymous</span>.
+                    Your feedback will be <span className="font-bold text-purple-600 dark:text-purple-400">attributed to you</span>.
                 </p>
             </div>
 
@@ -67,9 +72,9 @@ export default function Feedback() {
                     </div>
 
                     <div className="flex items-center justify-between pt-2">
-                        <div className="flex items-center gap-2 text-xs text-green-600 dark:text-green-400 font-medium bg-green-500/10 px-3 py-1.5 rounded-lg">
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                            100% Anonymous
+                        <div className="flex items-center gap-2 text-xs text-purple-600 dark:text-purple-400 font-medium bg-purple-500/10 px-3 py-1.5 rounded-lg">
+                            <User className="w-3.5 h-3.5" />
+                            Submitted as: {user?.email || 'You'}
                         </div>
 
                         <button
@@ -81,7 +86,7 @@ export default function Feedback() {
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                             ) : (
                                 <>
-                                    Send Message
+                                    Send Feedback
                                     <Send className="w-4 h-4" />
                                 </>
                             )}
