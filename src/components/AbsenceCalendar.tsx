@@ -39,6 +39,19 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
         const endDate = toLocalISOString(new Date(year, month + 1, 0));
 
         try {
+            // HR Mode: Auto-mark absent employees for working days they didn't login
+            if (!userId) {
+                try {
+                    await supabase.rpc('mark_absent_for_missing_days', {
+                        check_from_date: startDate,
+                        check_to_date: endDate
+                    });
+                } catch (err) {
+                    console.error('Error marking absent employees:', err);
+                    // Don't fail the whole operation if this fails
+                }
+            }
+
             let queryLogs = supabase
                 .from('attendance_logs')
                 .select('work_date, user_id, status')

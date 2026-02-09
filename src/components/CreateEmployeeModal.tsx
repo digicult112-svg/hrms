@@ -3,6 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { X, Loader2, GraduationCap, Briefcase, MapPin, Building2, User } from 'lucide-react';
+import { getCurrencyOptions } from '../lib/currency';
+import { useToast } from '../context/ToastContext';
 
 interface CreateEmployeeModalProps {
     isOpen: boolean;
@@ -12,6 +14,7 @@ interface CreateEmployeeModalProps {
 
 export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: CreateEmployeeModalProps) {
     const { tenantId } = useAuth();
+    const { error: toastError } = useToast();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [formData, setFormData] = useState({
@@ -31,6 +34,9 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
         previousRole: '',
         previousCompany: '',
         isFresher: false,
+        timezone: 'Asia/Kolkata',
+        exemptFromAutoAbsence: false,
+        currency: 'INR',
     });
 
     useEffect(() => {
@@ -131,6 +137,23 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
                 // Don't throw - user was created, just some fields weren't updated
             }
 
+            // Update Timezone, Currency, and Exemption fields
+            try {
+                const { error: settingsError } = await supabase
+                    .from('profiles')
+                    .update({
+                        timezone: formData.timezone,
+                        currency: formData.currency,
+                        exempt_from_auto_absence: formData.exemptFromAutoAbsence,
+                    })
+                    .eq('id', authData.user.id);
+
+                if (settingsError) throw settingsError;
+            } catch (settingsErr: any) {
+                console.error('Failed to update employee settings:', settingsErr);
+                toastError('Employee created, but failed to save currency/timezone settings. Please apply database migration.');
+            }
+
             // [NEW] Update Salary in separate table
             const salaryAmount = parseFloat(formData.salary) || 0;
             if (salaryAmount > 0) {
@@ -160,6 +183,9 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
                 previousRole: '',
                 previousCompany: '',
                 isFresher: false,
+                timezone: 'Asia/Kolkata',
+                exemptFromAutoAbsence: false,
+                currency: 'INR',
             });
 
             onSuccess();
@@ -440,6 +466,62 @@ export default function CreateEmployeeModal({ isOpen, onClose, onSuccess }: Crea
                             <option value="employee">Employee</option>
                             <option value="hr">HR</option>
                         </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Timezone
+                        </label>
+                        <select
+                            value={formData.timezone}
+                            onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                        >
+                            <option value="Asia/Kolkata">India (Asia/Kolkata)</option>
+                            <option value="America/New_York">USA - Eastern (America/New_York)</option>
+                            <option value="America/Chicago">USA - Central (America/Chicago)</option>
+                            <option value="America/Denver">USA - Mountain (America/Denver)</option>
+                            <option value="America/Los_Angeles">USA - Pacific (America/Los_Angeles)</option>
+                            <option value="Europe/London">UK (Europe/London)</option>
+                            <option value="Europe/Paris">Europe - Central (Europe/Paris)</option>
+                            <option value="Asia/Dubai">UAE (Asia/Dubai)</option>
+                            <option value="Asia/Singapore">Singapore (Asia/Singapore)</option>
+                            <option value="Australia/Sydney">Australia (Australia/Sydney)</option>
+                            <option value="Asia/Tokyo">Japan (Asia/Tokyo)</option>
+                            <option value="Asia/Shanghai">China (Asia/Shanghai)</option>
+                        </select>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Used for accurate attendance tracking across timezones</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Currency
+                        </label>
+                        <select
+                            value={formData.currency}
+                            onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                        >
+                            {getCurrencyOptions().map(currency => (
+                                <option key={currency.value} value={currency.value}>
+                                    {currency.label}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Currency for salary and payslips</p>
+                    </div>
+
+                    <div className="md:col-span-2 flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <input
+                            type="checkbox"
+                            id="exemptFromAutoAbsence"
+                            checked={formData.exemptFromAutoAbsence}
+                            onChange={(e) => setFormData({ ...formData, exemptFromAutoAbsence: e.target.checked })}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
+                        />
+                        <label htmlFor="exemptFromAutoAbsence" className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                            Exempt from automatic absence marking (for contractors, international employees, or special cases)
+                        </label>
                     </div>
 
                     <div className="md:col-span-2 flex gap-3 pt-4">

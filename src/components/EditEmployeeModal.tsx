@@ -4,6 +4,7 @@ import { X, Loader2, GraduationCap, Briefcase, MapPin, Building2, User } from 'l
 import type { Profile, OfficeLocation } from '../types';
 import { logAction } from '../lib/logger';
 import { useAuth } from '../context/AuthContext';
+import { getCurrencyOptions, getCurrencySymbol } from '../lib/currency';
 
 interface EditEmployeeModalProps {
     isOpen: boolean;
@@ -33,11 +34,16 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
         previousRole: employee.previous_role || '',
         previousCompany: employee.previous_company || '',
         isFresher: !employee.previous_experience && !employee.previous_role && !employee.previous_company,
+        timezone: employee.timezone || 'Asia/Kolkata',
+        exemptFromAutoAbsence: employee.exempt_from_auto_absence || false,
+        currency: employee.currency || 'INR',
+        salary: '',
     });
 
     useEffect(() => {
         if (isOpen) {
             fetchLocations();
+            fetchSalary();
         }
     }, [isOpen]);
 
@@ -45,6 +51,19 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
         const { data } = await supabase.from('office_locations').select('*');
         if (data) setLocations(data);
     };
+
+    const fetchSalary = async () => {
+        const { data } = await supabase
+            .from('salaries')
+            .select('amount')
+            .eq('user_id', employee.id)
+            .maybeSingle();
+
+        if (data) {
+            setFormData(prev => ({ ...prev, salary: data.amount.toString() }));
+        }
+    };
+
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -69,8 +88,38 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
                     work_email: formData.workEmail || null,
                     personal_email: formData.personalEmail || null,
                     date_of_birth: formData.dateOfBirth || null,
+                    timezone: formData.timezone,
+                    currency: formData.currency,
+                    exempt_from_auto_absence: formData.exemptFromAutoAbsence,
                 })
                 .eq('id', employee.id);
+
+            // Update Salary if changed and valid
+            if (formData.salary) {
+                const salaryAmount = parseFloat(formData.salary);
+                if (!isNaN(salaryAmount) && salaryAmount > 0) {
+                    const { error: salaryError } = await supabase
+                        .from('salaries')
+                        .upsert({
+                            user_id: employee.id,
+                            amount: salaryAmount
+                        }, { onConflict: 'user_id' });
+
+                    if (salaryError) throw salaryError;
+
+                    // Automatically regenerate payroll for the current month to reflect the new salary
+                    // This fixes the issue where Payroll stays at 0 until manual regeneration
+                    const today = new Date();
+                    const currentMonth = today.getMonth() + 1;
+                    const currentYear = today.getFullYear();
+
+                    await supabase.rpc('generate_payroll_batch', {
+                        payroll_records: [{ user_id: employee.id }],
+                        target_month: currentMonth,
+                        target_year: currentYear
+                    });
+                }
+            }
 
             if (updateError) throw updateError;
 
@@ -166,6 +215,21 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
                             value={formData.phone}
                             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Salary ({getCurrencySymbol(formData.currency)})
+                        </label>
+                        <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={formData.salary}
+                            onChange={(e) => setFormData({ ...formData, salary: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                            placeholder="Annual Salary"
                         />
                     </div>
 
@@ -346,6 +410,62 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
                         </select>
                     </div>
 
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Timezone
+                        </label>
+                        <select
+                            value={formData.timezone}
+                            onChange={(e) => setFormData({ ...formData, timezone: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                        >
+                            <option value="Asia/Kolkata">India (Asia/Kolkata)</option>
+                            <option value="America/New_York">USA - Eastern (America/New_York)</option>
+                            <option value="America/Chicago">USA - Central (America/Chicago)</option>
+                            <option value="America/Denver">USA - Mountain (America/Denver)</option>
+                            <option value="America/Los_Angeles">USA - Pacific (America/Los_Angeles)</option>
+                            <option value="Europe/London">UK (Europe/London)</option>
+                            <option value="Europe/Paris">Europe - Central (Europe/Paris)</option>
+                            <option value="Asia/Dubai">UAE (Asia/Dubai)</option>
+                            <option value="Asia/Singapore">Singapore (Asia/Singapore)</option>
+                            <option value="Australia/Sydney">Australia (Australia/Sydney)</option>
+                            <option value="Asia/Tokyo">Japan (Asia/Tokyo)</option>
+                            <option value="Asia/Shanghai">China (Asia/Shanghai)</option>
+                        </select>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Used for accurate attendance tracking across timezones</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Currency
+                        </label>
+                        <select
+                            value={formData.currency}
+                            onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
+                            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-800 text-gray-900 dark:text-white transition-colors"
+                        >
+                            {getCurrencyOptions().map(currency => (
+                                <option key={currency.value} value={currency.value}>
+                                    {currency.label}
+                                </option>
+                            ))}
+                        </select>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Currency for salary and payslips</p>
+                    </div>
+
+                    <div className="md:col-span-2 flex items-center gap-2 bg-amber-50 dark:bg-amber-900/20 p-3 rounded-lg border border-amber-200 dark:border-amber-800">
+                        <input
+                            type="checkbox"
+                            id="editExemptFromAutoAbsence"
+                            checked={formData.exemptFromAutoAbsence}
+                            onChange={(e) => setFormData({ ...formData, exemptFromAutoAbsence: e.target.checked })}
+                            className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
+                        />
+                        <label htmlFor="editExemptFromAutoAbsence" className="text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                            Exempt from automatic absence marking (for contractors, international employees, or special cases)
+                        </label>
+                    </div>
+
                     <div className="md:col-span-2 flex gap-3 pt-4">
                         <button
                             type="button"
@@ -371,7 +491,7 @@ export default function EditEmployeeModal({ isOpen, onClose, onSuccess, employee
                         </button>
                     </div>
                 </form>
-            </div>
-        </div>
+            </div >
+        </div >
     );
 }

@@ -12,6 +12,7 @@ import digicultLogo from '../assets/digicult.png';
 import { toLocalISOString } from '../utils/date';
 import PayrollPreviewModal from '../components/PayrollPreviewModal';
 import { logAction } from '../lib/logger';
+import { formatCurrency, getCurrencyConfig } from '../lib/currency';
 
 export default function PayrollPage() {
     const { user, profile } = useAuth();
@@ -62,7 +63,7 @@ export default function PayrollPage() {
         try {
             const { data, error } = await supabase
                 .from('profiles')
-                .select('id, full_name, email, tenant_id, salary_record:salaries(amount)')
+                .select('*, salary_record:salaries(amount)')
                 .is('deleted_at', null)
                 .order('full_name');
 
@@ -77,7 +78,7 @@ export default function PayrollPage() {
         try {
             let query = supabase
                 .from('payroll')
-                .select('*, profiles:user_id(full_name, email)')
+                .select('*, profiles:user_id(*)')
                 .eq('is_current', true) // Only show the latest versions
                 .order('year', { ascending: false })
                 .order('month', { ascending: false });
@@ -379,8 +380,25 @@ export default function PayrollPage() {
                     .gte('end_date', startStr);
 
                 // Calculations
-                const totalDaysInCycle = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
-                const holidayCount = holidays?.length || 0;
+                // SIMPLIFIED PAYROLL LOGIC
+                // 1. Fixed 30-day cycle
+                const totalDaysInCycle = 30;
+
+                // 2. Count Absent Days (Everything not present/holiday/weekend/leave is absent)
+                // We need to know how many days were "Potential Working Days" vs "Present".
+                // Actually, the user requirement is: "Every employee is allowed one paid leave, after that deduct 1/30 portion".
+
+                // Let's count "Paid Days" first as we did before, but relative to the specific cycle length?
+                // No, the user said "1/30 portion of his salary". This implies the denominator is always 30.
+
+                // We need to calculate how many days they were ABSENT.
+                // Absent = Total Days (Real Calendar) - (Present + Holidays + Weekends + Approved Leaves)
+                // Wait, if we use real calendar for "Absent" but 30 for "Deduction", it might mismatch.
+                // But usually, "1/30th deduction" is a standard.
+                // Let's use the Real Calendar count to determine "Days Not Accounted For".
+
+                // Re-calculate the real cycle days for "Absent" determination
+                const realTotalDays = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
 
                 const presentDays = new Set(attendance?.filter((a: any) =>
                     a.mode === 'onsite' || ((a.mode === 'wfh' || a.mode === 'remote') && a.status === 'approved')
@@ -400,9 +418,6 @@ export default function PayrollPage() {
                     }
                 });
 
-                const paidLeaveQuota = paidLeavesPerMonth >= 0 ? paidLeavesPerMonth : 1;
-                const paidLeavesUsed = Math.min(totalApprovedLeaveDays, paidLeaveQuota);
-
                 let weekends = 0;
                 const iterDate = new Date(prevMonthDate);
                 while (iterDate <= currMonthDate) {
@@ -411,44 +426,53 @@ export default function PayrollPage() {
                     iterDate.setDate(iterDate.getDate() + 1);
                 }
 
-                let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
-                if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
+                // Days the employee was "Okay" (Paid)
+                // Note: User said "allowed one paid leave". 
+                // This means "totalApprovedLeaveDays" contributes to "Okay" status up to 1 day?
+                // No, "allowed one paid leave" usually means "You get 1 day of 'Leave' marked as Paid".
+                // If they took 3 days of approved leave:
+                // 1 is Paid. 2 are Unpaid (Deductible).
 
-                // DEFAULT TO PRESENT Strategy
-                if (presentDays === 0) {
-                    paidDays = totalDaysInCycle;
-                }
+                // Let's calculate "Days Accounted For" (Present + Holiday + Weekend)
+                const workingDaysAccounted = presentDays + holidayCount + weekends;
 
-                const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-                const perDaySalary = totalDaysInCycle > 0 ? Number(baseSalary) / totalDaysInCycle : 0;
-                let deductions = Math.round(lopDays * perDaySalary);
+                // Absent Days = Real Total Days - Working Days Accounted - (Leaves?)
+                // Actually, Leaves are "Absent" physically. 
+                // So Total Absent = Real Total Days - Working Days Accounted.
+                // Of these Absent days, some are "Approved Leaves", some are "Unexplained".
 
-                let taxAmount = 0;
-                if (enableTax) {
-                    const salaryNum = Number(baseSalary);
-                    if (salaryNum > 100000) taxAmount = salaryNum * 0.15;
-                    else if (salaryNum > 50000) taxAmount = salaryNum * 0.10;
-                    else if (salaryNum > 25000) taxAmount = salaryNum * 0.05;
-                    deductions += taxAmount;
-                }
+                const totalAbsentDays = Math.max(0, realTotalDays - workingDaysAccounted);
 
-                const netSalary = Number(baseSalary) + Number(hra) + Number(allowances) - deductions;
+                // Now, from these Absent Days, how many are "Deductible"?
+                // "Allowed one paid leave".
+                // So Deductible = MAX(0, Total Absent - 1).
+                // This covers both "Approved Leave" and "No Show". 
+                // If I am absent 1 day (Approved or not), it is covered.
+                // If I am absent 2 days, I lose 1 day pay.
+
+                const deductibleDays = Math.max(0, totalAbsentDays - 1);
+
+                const perDaySalary = Number(baseSalary) / 30; // Fixed 30
+                const deductionAmount = Math.round(deductibleDays * perDaySalary);
+
+                const netSalary = Math.max(0, Number(baseSalary) - deductionAmount);
 
                 calculatedRecords.push({
                     user_id: emp.id,
                     base_salary: baseSalary,
-                    hra: hra,
-                    allowances: allowances,
-                    deductions: deductions,
+                    hra: 0,
+                    allowances: 0,
+                    deductions: deductionAmount,
                     net_salary: netSalary,
                     metadata: {
-                        lop_days: lopDays,
-                        lop_amount: Math.round(lopDays * perDaySalary),
-                        tax_amount: taxAmount,
-                        paid_days: paidDays,
-                        total_days: totalDaysInCycle,
+                        lop_days: deductibleDays,
+                        lop_amount: deductionAmount,
+                        tax_amount: 0,
+                        paid_days: 30 - deductibleDays, // Virtual Paid Days
+                        total_days: 30,
                         present_days: presentDays,
-                        leave_days: totalApprovedLeaveDays
+                        leave_days: totalApprovedLeaveDays,
+                        currency: emp.currency || 'INR'
                     },
                     profiles: emp
                 });
@@ -517,7 +541,8 @@ export default function PayrollPage() {
                     base: rec.base_salary,
                     deductions: rec.deductions,
                     net: rec.net_salary,
-                    metadata: rec.metadata
+                    metadata: rec.metadata,
+                    currency: rec.metadata?.currency || rec.profiles.currency || 'INR'
                 }));
 
             if (emailsToSend.length > 0) {
@@ -542,21 +567,21 @@ export default function PayrollPage() {
                                     <tbody>
                                         <tr>
                                             <td style="padding: 12px; border-bottom: 1px solid #e5e7eb;">Base Salary</td>
-                                            <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb;">₹${emailData.base.toLocaleString('en-IN')}</td>
+                                            <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb;">${formatCurrency(emailData.base, emailData.currency)}</td>
                                         </tr>
                                         <tr>
                                             <td style="padding: 12px; border-bottom: 1px solid #e5e7eb; color: #dc2626;">Deductions</td>
-                                            <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; color: #dc2626;">-₹${emailData.deductions.toLocaleString('en-IN')}</td>
+                                            <td style="padding: 12px; text-align: right; border-bottom: 1px solid #e5e7eb; color: #dc2626;">-${formatCurrency(emailData.deductions, emailData.currency)}</td>
                                         </tr>
                                         <tr style="background-color: #eff6ff; font-weight: bold; color: #1e3a8a;">
                                             <td style="padding: 12px;">Net Salary</td>
-                                            <td style="padding: 12px; text-align: right;">₹${emailData.net.toLocaleString('en-IN')}</td>
+                                            <td style="padding: 12px; text-align: right;">${formatCurrency(emailData.net, emailData.currency)}</td>
                                         </tr>
                                     </tbody>
                                 </table>
 
                                 ${emailData.metadata?.lop_days > 0 ?
-                                `<p style="font-size: 13px; color: #6b7280; font-style: italic; margin-top: 5px;">* Includes ${emailData.metadata.lop_days} days Loss of Pay (₹${emailData.metadata.lop_amount || 0})</p>`
+                                `<p style="font-size: 13px; color: #6b7280; font-style: italic; margin-top: 5px;">* Includes ${emailData.metadata.lop_days} days Loss of Pay (${formatCurrency(emailData.metadata.lop_amount || 0, emailData.currency)})</p>`
                                 : ''}
 
                                 <p style="margin-top: 30px; font-size: 14px; color: #666;">Regards,<br>HR Team</p>
@@ -588,16 +613,21 @@ export default function PayrollPage() {
         }
     };
 
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-IN', {
-            style: 'currency',
-            currency: 'INR',
-            maximumFractionDigits: 0
-        }).format(amount);
-    };
+
 
     const handleDownloadPayslip = async (p: Payroll & { metadata?: any }) => {
         try {
+            // Fetch employee profile to get currency
+            const { data: profileData, error: profileError } = await supabase
+                .from('profiles')
+                .select('currency, full_name')
+                .eq('id', p.user_id)
+                .single();
+
+            if (profileError) throw profileError;
+
+            const employeeCurrency = p.metadata?.currency || profileData?.currency || 'INR';
+
             // 1. Fetch ALL settings needed (Logo + Cycle + Tax)
             // 1. Fetch ALL settings needed (Logo + Cycle + Tax)
             let logoUrl = digicultLogo;
@@ -707,23 +737,18 @@ export default function PayrollPage() {
             const perDaySalary = p.base_salary / totalDaysInCycle; // Dynamic divisor fix
             const calculatedLopAmount = Math.round(lopDays * perDaySalary);
 
-            let calculatedTax = 0;
-            if (taxEnabled) {
-                // Same slab as generate
-                if (p.base_salary > 100000) calculatedTax = p.base_salary * 0.15;
-                else if (p.base_salary > 50000) calculatedTax = p.base_salary * 0.10;
-                else if (p.base_salary > 25000) calculatedTax = p.base_salary * 0.05;
-            }
+
 
             // PDF Generation
             const doc = new jsPDF();
 
-            // Helper for PDF currency
+            // Helper for PDF currency - use Code instead of Symbol to avoid encoding issues
             const formatForPDF = (amount: number) => {
-                return 'Rs. ' + amount.toLocaleString('en-IN', {
-                    maximumFractionDigits: 0,
-                    minimumFractionDigits: 0
-                });
+                const config = getCurrencyConfig(employeeCurrency);
+                return `${config.code} ${amount.toLocaleString('en-US', {
+                    minimumFractionDigits: config.decimals,
+                    maximumFractionDigits: config.decimals
+                })}`;
             };
 
             // 1. Header
@@ -818,8 +843,6 @@ export default function PayrollPage() {
                 head: [['Earnings', 'Amount']],
                 body: [
                     ['Base Salary', formatForPDF(p.base_salary)],
-                    ['HRA', formatForPDF(p.hra)],
-                    ['Allowances', formatForPDF(p.allowances)],
                 ],
                 theme: 'grid',
                 headStyles: { fillColor: [22, 163, 74], textColor: 255 }, // Green header
@@ -843,13 +866,10 @@ export default function PayrollPage() {
                 deductionRows.push([`Loss of Pay (${lopDays} days absent)`, formatForPDF(calculatedLopAmount)]);
             }
 
-            // Add Tax
-            if (calculatedTax > 0 && showTax) {
-                deductionRows.push([`Income Tax`, formatForPDF(calculatedTax)]);
-            }
+
 
             // Check if there is discrepancy (e.g. manual edits or old logic)
-            const explainedAmount = calculatedLopAmount + calculatedTax;
+            const explainedAmount = calculatedLopAmount;
             const remainingDiff = p.deductions - explainedAmount;
 
             if (Math.abs(remainingDiff) > 10) { // Tolerance 10rs
@@ -985,7 +1005,7 @@ export default function PayrollPage() {
                                 <th className="px-6 py-3 font-medium">Employee</th>
                                 <th className="px-6 py-3 font-medium">Month/Year</th>
                                 <th className="px-6 py-3 font-medium">Base Salary</th>
-                                <th className="px-6 py-3 font-medium">Allowances</th>
+                                <th className="px-6 py-3 font-medium">Deductions</th>
                                 <th className="px-6 py-3 font-medium">Net Salary</th>
                                 <th className="px-6 py-3 font-medium">Actions</th>
                             </tr>
@@ -1009,10 +1029,10 @@ export default function PayrollPage() {
                                         <td className="px-6 py-4 text-gray-900 dark:text-gray-100 font-medium">
                                             {getMonthName(p.month)} {p.year}
                                         </td>
-                                        <td className="px-6 py-4 text-gray-700 dark:text-gray-300">{formatCurrency(p.base_salary)}</td>
-                                        <td className="px-6 py-4 text-green-600 dark:text-green-400">+{formatCurrency(p.allowances)}</td>
+                                        <td className="px-6 py-4 text-gray-700 dark:text-gray-300">{formatCurrency(p.base_salary, p.metadata?.currency || p.profiles?.currency)}</td>
+                                        <td className="px-6 py-4 text-red-600 dark:text-red-400">-{formatCurrency(p.deductions, p.metadata?.currency || p.profiles?.currency)}</td>
                                         <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
-                                            {formatCurrency(calculateNetSalary(p))}
+                                            {formatCurrency(calculateNetSalary(p), p.metadata?.currency || p.profiles?.currency)}
                                             {p.metadata?.server_calculated && (
                                                 <div className="flex items-center gap-1 mt-1 text-[10px] uppercase font-bold text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/30 px-1.5 py-0.5 rounded w-fit">
                                                     <ShieldCheck className="w-3 h-3" />
@@ -1079,8 +1099,8 @@ export default function PayrollPage() {
                                     <tr>
                                         <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Employee</th>
                                         <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Role</th>
-                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Current Salary (₹)</th>
-                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Revised Salary (₹)</th>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Current Salary</th>
+                                        <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700">Revised Salary</th>
                                         <th className="px-6 py-3 border-b border-gray-200 dark:border-gray-700 w-48">Action</th>
                                     </tr>
                                 </thead>
@@ -1097,7 +1117,7 @@ export default function PayrollPage() {
                                                     {emp.role || 'Employee'}
                                                 </td>
                                                 <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100 font-medium">
-                                                    ₹{emp.salary_record?.amount?.toLocaleString() || '0'} / Month
+                                                    {formatCurrency(emp.salary_record?.amount || 0, emp.currency)} / Month
                                                 </td>
                                                 <td className="px-6 py-4">
                                                     <input
@@ -1204,39 +1224,18 @@ export default function PayrollPage() {
                                 />
                             </div>
 
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-1 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">HRA</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={hra}
-                                        onChange={(e) => setHra(e.target.value)}
-                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
-                                        placeholder="10000"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Allowances</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        value={allowances}
-                                        onChange={(e) => setAllowances(e.target.value)}
-                                        className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
-                                        placeholder="5000"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deductions</label>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Deductions (Manual Override)</label>
                                     <input
                                         type="number"
                                         step="0.01"
                                         value={deductions}
                                         onChange={(e) => setDeductions(e.target.value)}
                                         className="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 transition-colors"
-                                        placeholder="2000"
+                                        placeholder="0"
                                     />
+                                    <p className="text-xs text-gray-500 mt-1">Leave empty for auto-calculation based on attendance.</p>
                                 </div>
                             </div>
 

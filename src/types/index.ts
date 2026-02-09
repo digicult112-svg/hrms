@@ -34,6 +34,9 @@ export interface Profile {
     address?: string;
     is_frozen?: boolean;
     tenant_id?: string;
+    timezone?: string; // IANA timezone identifier for attendance tracking
+    exempt_from_auto_absence?: boolean; // Skip automated absence marking
+    currency?: string; // ISO 4217 currency code for salary and payslips
     created_at: string;
     deleted_at?: string;
 }
@@ -125,6 +128,7 @@ export interface Payroll {
     profiles?: {
         full_name: string;
         email: string;
+        currency?: string;
     };
 }
 

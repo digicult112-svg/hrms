@@ -25,6 +25,19 @@ export default function DeleteEmployeeDialog({
         setLoading(true);
 
         try {
+            // Step 0: Check if the employee is an admin (prevent HR from deleting admins)
+            const { data: employeeProfile, error: profileError } = await supabase
+                .from('profiles')
+                .select('role')
+                .eq('id', employeeId)
+                .single();
+
+            if (profileError) throw profileError;
+
+            if (employeeProfile?.role === 'admin') {
+                throw new Error('❌ Admin accounts cannot be deleted. Only admins can manage other admin accounts.');
+            }
+
             // Step 1: Soft delete - Mark as frozen and set deleted_at
             const { error: deleteError } = await supabase
                 .from('profiles')

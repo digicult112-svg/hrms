@@ -1,4 +1,5 @@
 import { X, Check } from 'lucide-react';
+import { formatCurrency } from '../lib/currency';
 
 interface PreviewData {
     employeeCount: number;
@@ -45,7 +46,7 @@ export default function PayrollPreviewModal({ isOpen, onClose, onConfirm, data, 
                         <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
                             <p className="text-sm text-green-600 dark:text-green-400 font-medium">Total Net Payout</p>
                             <p className="text-2xl font-bold text-green-700 dark:text-green-300">
-                                {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(data.totalPayout)}
+                                {formatCurrency(data.totalPayout)}
                             </p>
                         </div>
                     </div>
@@ -70,7 +71,7 @@ export default function PayrollPreviewModal({ isOpen, onClose, onConfirm, data, 
                                             {rec.metadata?.paid_days} / {rec.metadata?.total_days}
                                         </td>
                                         <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-200">
-                                            {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(rec.net_salary)}
+                                            {formatCurrency(rec.net_salary, rec.profiles?.currency)}
                                         </td>
                                     </tr>
                                 ))}

@@ -321,13 +321,16 @@ export default function EmployeeList() {
                                                 <Edit2 className="w-4 h-4 mr-1" />
                                                 Edit
                                             </button>
-                                            <button
-                                                onClick={() => handleDelete(employee)}
-                                                className="flex-1 flex items-center justify-center px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-transparent dark:border-red-900/30"
-                                            >
-                                                <Trash2 className="w-4 h-4 mr-1" />
-                                                Delete
-                                            </button>
+                                            {/* Only show delete button for non-admin accounts */}
+                                            {employee.role !== 'admin' && (
+                                                <button
+                                                    onClick={() => handleDelete(employee)}
+                                                    className="flex-1 flex items-center justify-center px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-transparent dark:border-red-900/30"
+                                                >
+                                                    <Trash2 className="w-4 h-4 mr-1" />
+                                                    Delete
+                                                </button>
+                                            )}
                                         </div>
                                     )}
                                 </>
