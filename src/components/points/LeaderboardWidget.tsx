@@ -91,38 +91,47 @@ export default function LeaderboardWidget() {
                         <p className="text-xs text-gray-400 italic">No rankings yet.</p>
                     </div>
                 ) : (
-                    entries.map((entry, index) => (
-                        <div key={entry.user_id} className="flex items-center gap-4 group cursor-default">
-                            <div className="relative">
-                                <SafeAvatar
-                                    src={entry.profiles.avatar_url}
-                                    alt={entry.profiles.full_name}
-                                    size={40}
-                                    className="rounded-xl border-2 border-transparent group-hover:border-purple-200 dark:group-hover:border-purple-900 transition-colors"
-                                />
-                                {index < 3 && (
-                                    <div className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-gray-900
-                                        ${index === 0 ? 'bg-yellow-400' : index === 1 ? 'bg-slate-300' : 'bg-amber-600'}`}>
-                                        <Medal className="w-3 h-3 text-white" />
-                                    </div>
-                                )}
+                    entries.map((entry, index) => {
+                        // Handle null/missing profile data
+                        const profile = entry.profiles || {
+                            avatar_url: '',
+                            full_name: 'Unknown User',
+                            designation: 'Employee'
+                        };
+
+                        return (
+                            <div key={entry.user_id} className="flex items-center gap-4 group cursor-default">
+                                <div className="relative">
+                                    <SafeAvatar
+                                        src={profile.avatar_url}
+                                        alt={profile.full_name}
+                                        size={40}
+                                        className="rounded-xl border-2 border-transparent group-hover:border-purple-200 dark:group-hover:border-purple-900 transition-colors"
+                                    />
+                                    {index < 3 && (
+                                        <div className={`absolute -top-2 -right-2 w-5 h-5 rounded-full flex items-center justify-center border-2 border-white dark:border-gray-900
+                                            ${index === 0 ? 'bg-yellow-400' : index === 1 ? 'bg-slate-300' : 'bg-amber-600'}`}>
+                                            <Medal className="w-3 h-3 text-white" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">
+                                        {profile.full_name}
+                                    </h4>
+                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate uppercase tracking-tighter">
+                                        {profile.designation || 'Employee'}
+                                    </p>
+                                </div>
+                                <div className="text-right">
+                                    <p className="text-sm font-black text-gray-900 dark:text-white">
+                                        {view === 'monthly' ? entry.monthly_points : entry.total_points}
+                                    </p>
+                                    <p className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">pts</p>
+                                </div>
                             </div>
-                            <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-bold text-gray-900 dark:text-white truncate">
-                                    {entry.profiles.full_name}
-                                </h4>
-                                <p className="text-[10px] text-gray-500 dark:text-gray-400 truncate uppercase tracking-tighter">
-                                    {entry.profiles.designation || 'Employee'}
-                                </p>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-sm font-black text-gray-900 dark:text-white">
-                                    {view === 'monthly' ? entry.monthly_points : entry.total_points}
-                                </p>
-                                <p className="text-[9px] text-gray-400 font-bold uppercase tracking-tighter">pts</p>
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 

@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Clear Data Function</title>
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+        
+        // Get your Supabase credentials from .env or directly
+        const supabaseUrl = prompt('Enter your VITE_SUPABASE_URL:');
+        const supabaseAnonKey = prompt('Enter your VITE_SUPABASE_ANON_KEY:');
+        
+        const supabase = createClient(supabaseUrl, supabaseAnonKey);
+        
+        async function testFunction() {
+            const output = document.getElementById('output');
+            output.innerHTML = 'Testing clear_all_employee_data() function...<br><br>';
+            
+            try {
+                const { data, error } = await supabase.rpc('clear_all_employee_data');
+                
+                if (error) {
+                    output.innerHTML += `<span style="color: red;">❌ ERROR:</span><br>`;
+                    output.innerHTML += `Code: ${error.code}<br>`;
+                    output.innerHTML += `Message: ${error.message}<br>`;
+                    output.innerHTML += `Details: ${error.details || 'N/A'}<br>`;
+                    output.innerHTML += `Hint: ${error.hint || 'N/A'}<br><br>`;
+                    
+                    if (error.code === '42883') {
+                        output.innerHTML += `<span style="color: orange;">⚠️ Function does not exist in database!</span><br>`;
+                        output.innerHTML += `<strong>You need to apply the migration via Supabase Dashboard</strong>`;
+                    } else if (error.message.includes('Access Denied')) {
+                        output.innerHTML += `<span style="color: orange;">⚠️ Not logged in as admin</span>`;
+                    }
+                } else {
+                    output.innerHTML += `<span style="color: green;">✅ Success!</span><br>`;
+                    output.innerHTML += `Result: ${JSON.stringify(data, null, 2)}`;
+                }
+            } catch (err) {
+                output.innerHTML += `<span style="color: red;">Unexpected error: ${err.message}</span>`;
+            }
+        }
+        
+        window.testFunction = testFunction;
+    </script>
+</head>
+<body>
+    <h1>Diagnostic Tool: Test Clear Data Function</h1>
+    <button onclick="testFunction()">Test Function</button>
+    <div id="output" style="margin-top: 20px; padding: 10px; background: #f0f0f0; font-family: monospace;"></div>
+</body>
+</html>
