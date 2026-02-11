@@ -42,10 +42,34 @@ export default function AbsenceCalendar({ userId }: AbsenceCalendarProps) {
             // HR Mode: Auto-mark absent employees for working days they didn't login
             if (!userId) {
                 try {
-                    await supabase.rpc('mark_absent_for_missing_days', {
-                        check_from_date: startDate,
-                        check_to_date: endDate
-                    });
+                    // CLEANUP: Fix previous bug where future dates were marked absent
+                    // We delete any "Unexcused Absence" for today or future dates
+                    const todayStr = toLocalISOString().split('T')[0];
+
+                    // Try RPC first (bypass RLS)
+                    try {
+                        await supabase.rpc('cleanup_future_absences');
+                    } catch (err) {
+                        // Fallback to direct delete if RPC not found yet
+                        await supabase.from('leave_requests')
+                            .delete()
+                            .eq('reason', 'Unexcused Absence')
+                            .gte('start_date', todayStr);
+                    }
+
+                    // Cap RPC check date to yesterday to avoid marking future/today as absent
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+
+                    const lastDayOfMonth = new Date(year, month + 1, 0);
+                    const rpcEndDate = lastDayOfMonth > yesterday ? yesterday : lastDayOfMonth;
+
+                    if (rpcEndDate >= new Date(year, month, 1)) {
+                        await supabase.rpc('mark_absent_for_missing_days', {
+                            check_from_date: startDate,
+                            check_to_date: toLocalISOString(rpcEndDate)
+                        });
+                    }
                 } catch (err) {
                     console.error('Error marking absent employees:', err);
                     // Don't fail the whole operation if this fails

@@ -9,7 +9,7 @@ import autoTable from 'jspdf-autotable';
 import { useToast } from '../context/ToastContext';
 import { sendEmail } from '../lib/email';
 import digicultLogo from '../assets/digicult.png';
-import { toLocalISOString } from '../utils/date';
+
 import PayrollPreviewModal from '../components/PayrollPreviewModal';
 import { logAction } from '../lib/logger';
 import { formatCurrency, getCurrencyConfig } from '../lib/currency';
@@ -250,7 +250,8 @@ export default function PayrollPage() {
     };
 
     const calculateNetSalary = (p: Payroll) => {
-        return p.base_salary + p.hra + p.allowances - p.deductions;
+        // Simplified payroll: Net = Base - Deductions (HRA and Allowances removed)
+        return p.base_salary - p.deductions;
     };
 
     const [previewData, setPreviewData] = useState<any>(null);
@@ -284,7 +285,7 @@ export default function PayrollPage() {
             // 2. Fetch Employees
             const { data: employeesData, error: empError } = await supabase
                 .from('profiles')
-                .select('*, salary_record:salaries(amount)')
+                .select('*, salary_record:salaries(amount), joining_date')
                 .is('deleted_at', null);
 
             if (empError) throw empError;
@@ -292,8 +293,6 @@ export default function PayrollPage() {
             // 3. Fetch Settings
             let startDay = 26;
             let endDay = 25;
-            let enableTax = true;
-            let paidLeavesPerMonth = 1;
 
             const { data: settings } = await supabase
                 .from('system_settings')
@@ -303,21 +302,39 @@ export default function PayrollPage() {
             if (settings) {
                 const s = settings.find(x => x.key === 'payroll_start_day');
                 const e = settings.find(x => x.key === 'payroll_end_day');
-                const t = settings.find(x => x.key === 'payroll_tax_enabled');
-                const l = settings.find(x => x.key === 'payroll_paid_leaves_per_month');
 
                 if (s) startDay = Number(s.value);
                 if (e) endDay = Number(e.value);
-                if (t) enableTax = t.value === 'true';
-                if (l) paidLeavesPerMonth = Number(l.value);
+                if (s) startDay = Number(s.value);
+                if (e) endDay = Number(e.value);
             }
 
             // 4. Identify Cycle Dates
             // Logic: Payroll for "January 2024" usually covers Dec 26, 2023 to Jan 25, 2024
             const prevMonthDate = new Date(year, month - 2, startDay);
             const currMonthDate = new Date(year, month - 1, endDay);
-            const startStr = toLocalISOString(prevMonthDate);
-            const endStr = toLocalISOString(currMonthDate);
+            // Calculate actual cycle days (not hardcoded 30)
+            const actualCycleDays = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
+
+            // Manual date formatting to ensure YYYY-MM-DD without timezone shifts
+            const formatDate = (d: Date) => {
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+
+            const startStr = formatDate(prevMonthDate);
+            const endStr = formatDate(currMonthDate);
+
+            // Calculate weekends for the cycle (Constant for all employees)
+            let cycleWeekends = 0;
+            const iterDate = new Date(prevMonthDate);
+            while (iterDate <= currMonthDate) {
+                const day = iterDate.getDay();
+                if (day === 0 || day === 6) cycleWeekends++;
+                iterDate.setDate(iterDate.getDate() + 1);
+            }
 
             // 5. Fetch Holidays
             const { data: holidays, error: holError } = await supabase
@@ -327,6 +344,7 @@ export default function PayrollPage() {
                 .lte('event_date', endStr);
 
             if (holError) throw holError;
+            const holidayCount = holidays?.length || 0;
 
             // 5a. Fetch Latest Payrolls (for fallback/continuity)
             const { data: latestPayrolls } = await supabase
@@ -340,8 +358,6 @@ export default function PayrollPage() {
             for (const emp of employeesData || []) {
                 // Resolve Base Salary: Master Table > Previous Payroll > 0
                 let baseSalary = emp.salary_record?.amount || 0;
-                let hra = 0;
-                let allowances = 0;
 
                 // Try to find previous record to fill gaps or carry over HRA/Allowances
                 const prevRecord = latestPayrolls?.find(p => p.user_id === emp.id);
@@ -350,16 +366,17 @@ export default function PayrollPage() {
                     baseSalary = prevRecord.base_salary || 0;
                 }
 
-                // If we have a base salary, determine HRA/Allowances
-                if (baseSalary > 0) {
-                    if (prevRecord) {
-                        hra = prevRecord.hra || 0;
-                        allowances = prevRecord.allowances || 0;
-                    } else {
-                        // Default Logic for new employees
-                        hra = Math.round(baseSalary * 0.40); // 40% HRA default
-                        allowances = 0;
-                    }
+                // Mid-Month Joining Proration Logic
+                const joiningDate = emp.joining_date ? new Date(emp.joining_date) : null;
+                let availableDays = actualCycleDays;
+                let proratedBaseSalary = baseSalary;
+                let isProrated = false;
+
+                if (joiningDate && joiningDate > prevMonthDate && joiningDate <= currMonthDate) {
+                    // Employee joined mid-cycle, calculate available days and prorate salary
+                    availableDays = Math.round((currMonthDate.getTime() - joiningDate.getTime()) / (1000 * 3600 * 24)) + 1;
+                    proratedBaseSalary = Math.round((baseSalary / actualCycleDays) * availableDays);
+                    isProrated = true;
                 }
 
                 // Fetch Attendance
@@ -380,25 +397,7 @@ export default function PayrollPage() {
                     .gte('end_date', startStr);
 
                 // Calculations
-                // SIMPLIFIED PAYROLL LOGIC
-                // 1. Fixed 30-day cycle
-                const totalDaysInCycle = 30;
-
-                // 2. Count Absent Days (Everything not present/holiday/weekend/leave is absent)
-                // We need to know how many days were "Potential Working Days" vs "Present".
-                // Actually, the user requirement is: "Every employee is allowed one paid leave, after that deduct 1/30 portion".
-
-                // Let's count "Paid Days" first as we did before, but relative to the specific cycle length?
-                // No, the user said "1/30 portion of his salary". This implies the denominator is always 30.
-
-                // We need to calculate how many days they were ABSENT.
-                // Absent = Total Days (Real Calendar) - (Present + Holidays + Weekends + Approved Leaves)
-                // Wait, if we use real calendar for "Absent" but 30 for "Deduction", it might mismatch.
-                // But usually, "1/30th deduction" is a standard.
-                // Let's use the Real Calendar count to determine "Days Not Accounted For".
-
-                // Re-calculate the real cycle days for "Absent" determination
-                const realTotalDays = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
+                // SIMPLIFIED PAYROLL LOGIC - Fixed 30-day cycle
 
                 const presentDays = new Set(attendance?.filter((a: any) =>
                     a.mode === 'onsite' || ((a.mode === 'wfh' || a.mode === 'remote') && a.status === 'approved')
@@ -418,48 +417,29 @@ export default function PayrollPage() {
                     }
                 });
 
-                let weekends = 0;
-                const iterDate = new Date(prevMonthDate);
-                while (iterDate <= currMonthDate) {
-                    const day = iterDate.getDay();
-                    if (day === 0 || day === 6) weekends++;
-                    iterDate.setDate(iterDate.getDate() + 1);
-                }
+                // Use pre-calculated weekends
+                const weekends = cycleWeekends;
 
-                // Days the employee was "Okay" (Paid)
-                // Note: User said "allowed one paid leave". 
-                // This means "totalApprovedLeaveDays" contributes to "Okay" status up to 1 day?
-                // No, "allowed one paid leave" usually means "You get 1 day of 'Leave' marked as Paid".
-                // If they took 3 days of approved leave:
-                // 1 is Paid. 2 are Unpaid (Deductible).
+                // SIMPLIFIED PAYROLL DEDUCTION LOGIC (Dynamic Cycle)
+                // Paid Days = Present + Holidays + Weekends + (up to 1 approved leave)
+                // Deductible Days = Available Days - Paid Days
 
-                // Let's calculate "Days Accounted For" (Present + Holiday + Weekend)
-                const workingDaysAccounted = presentDays + holidayCount + weekends;
+                const paidLeavesUsed = Math.min(totalApprovedLeaveDays, 1); // Only 1 leave is paid
+                let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
 
-                // Absent Days = Real Total Days - Working Days Accounted - (Leaves?)
-                // Actually, Leaves are "Absent" physically. 
-                // So Total Absent = Real Total Days - Working Days Accounted.
-                // Of these Absent days, some are "Approved Leaves", some are "Unexplained".
+                // Cap at available days (for prorated employees) or actual cycle days
+                if (paidDays > availableDays) paidDays = availableDays;
 
-                const totalAbsentDays = Math.max(0, realTotalDays - workingDaysAccounted);
+                const deductibleDays = Math.max(0, availableDays - paidDays);
 
-                // Now, from these Absent Days, how many are "Deductible"?
-                // "Allowed one paid leave".
-                // So Deductible = MAX(0, Total Absent - 1).
-                // This covers both "Approved Leave" and "No Show". 
-                // If I am absent 1 day (Approved or not), it is covered.
-                // If I am absent 2 days, I lose 1 day pay.
-
-                const deductibleDays = Math.max(0, totalAbsentDays - 1);
-
-                const perDaySalary = Number(baseSalary) / 30; // Fixed 30
+                const perDaySalary = proratedBaseSalary / availableDays;
                 const deductionAmount = Math.round(deductibleDays * perDaySalary);
 
-                const netSalary = Math.max(0, Number(baseSalary) - deductionAmount);
+                const netSalary = Math.max(0, proratedBaseSalary - deductionAmount);
 
                 calculatedRecords.push({
                     user_id: emp.id,
-                    base_salary: baseSalary,
+                    base_salary: proratedBaseSalary, // Use prorated if mid-month joiner
                     hra: 0,
                     allowances: 0,
                     deductions: deductionAmount,
@@ -468,10 +448,14 @@ export default function PayrollPage() {
                         lop_days: deductibleDays,
                         lop_amount: deductionAmount,
                         tax_amount: 0,
-                        paid_days: 30 - deductibleDays, // Virtual Paid Days
-                        total_days: 30,
+                        paid_days: availableDays - deductibleDays,
+                        total_days: availableDays,
+                        actual_cycle_days: actualCycleDays,
                         present_days: presentDays,
                         leave_days: totalApprovedLeaveDays,
+                        is_prorated: isProrated,
+                        joining_date: joiningDate?.toISOString(),
+                        full_monthly_salary: baseSalary, // Original salary before proration
                         currency: emp.currency || 'INR'
                     },
                     profiles: emp
@@ -634,13 +618,12 @@ export default function PayrollPage() {
             let companyAddress = '123 Innovation Drive\nHyderabad, India 500081\ncontact@hrms.com';
             let footerText = 'This payslip is system generated and does not require a physical signature.';
             let showId = true;
-            let showTax = true;
+
 
             // Cycle Defaults
             let startDay = 26;
             let endDay = 25;
-            let paidLeavesQuota = 1;
-            let taxEnabled = true;
+
 
             const { data: settings } = await supabase
                 .from('system_settings')
@@ -656,24 +639,18 @@ export default function PayrollPage() {
                 const address = settings.find(s => s.key === 'company_address');
                 const footer = settings.find(s => s.key === 'payslip_footer');
                 const idSetting = settings.find(s => s.key === 'payslip_show_id');
-                const taxSetting = settings.find(s => s.key === 'payslip_show_tax');
 
                 if (logo) logoUrl = logo.value;
                 if (address) companyAddress = address.value;
                 if (footer) footerText = footer.value;
 
                 if (idSetting) showId = idSetting.value === 'true';
-                if (taxSetting) showTax = taxSetting.value === 'true';
 
                 // Cycle Settings
                 const s = settings.find(x => x.key === 'payroll_start_day');
                 const e = settings.find(x => x.key === 'payroll_end_day');
-                const l = settings.find(x => x.key === 'payroll_paid_leaves_per_month');
-                const t = settings.find(x => x.key === 'payroll_tax_enabled');
                 if (s) startDay = Number(s.value);
                 if (e) endDay = Number(e.value);
-                if (l) paidLeavesQuota = Number(l.value);
-                if (t) taxEnabled = t.value === 'true';
             }
 
             // 2. Re-Calculate Breakdown Context (Dynamic Explanation)
@@ -682,9 +659,18 @@ export default function PayrollPage() {
             // Dates
             const prevMonthDate = new Date(p.year, p.month - 2, startDay); // Month is 1-based in DB
             const currMonthDate = new Date(p.year, p.month - 1, endDay);
-            const startStr = toLocalISOString(prevMonthDate);
-            const endStr = toLocalISOString(currMonthDate);
-            const totalDaysInCycle = Math.round((currMonthDate.getTime() - prevMonthDate.getTime()) / (1000 * 3600 * 24)) + 1;
+            // Manual date formatting to ensure YYYY-MM-DD for PDF query consistency
+            const formatDate = (d: Date) => {
+                const year = d.getFullYear();
+                const month = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${year}-${month}-${day}`;
+            };
+            const startStr = formatDate(prevMonthDate);
+            const endStr = formatDate(currMonthDate);
+            const sDate = prevMonthDate;
+            const eDate = currMonthDate;
+            const actualCycleDays = Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 3600 * 24)) + 1;
 
             // Fetch Holidays
             const { data: holidays } = await supabase.from('leave_calendar_events')
@@ -728,14 +714,33 @@ export default function PayrollPage() {
                 iterDate.setDate(iterDate.getDate() + 1);
             }
 
-            // Calculations
-            const paidLeavesUsed = Math.min(totalApprovedLeaveDays, paidLeavesQuota);
-            let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
-            if (paidDays > totalDaysInCycle) paidDays = totalDaysInCycle;
+            // PRORATION LOGIC FOR PDF (Match Batch Logic)
+            let availableDays = actualCycleDays;
+            let proratedBaseSalary = p.base_salary;
+            const joiningDate = (p.profiles as any)?.joining_date ? new Date((p.profiles as any).joining_date) : null;
 
-            const lopDays = Math.max(0, totalDaysInCycle - paidDays);
-            const perDaySalary = p.base_salary / totalDaysInCycle; // Dynamic divisor fix
+            // Check if proration data exists in metadata
+            if (p.metadata?.actual_cycle_days) {
+                availableDays = p.metadata.total_days || actualCycleDays;
+                proratedBaseSalary = p.base_salary; // already stored as prorated in batch
+            } else if (joiningDate && joiningDate > prevMonthDate && joiningDate <= currMonthDate) {
+                // Fallback calc if metadata missing
+                availableDays = Math.round((currMonthDate.getTime() - joiningDate.getTime()) / (1000 * 3600 * 24)) + 1;
+                proratedBaseSalary = Math.round((p.base_salary / actualCycleDays) * availableDays);
+            }
+
+            const paidLeavesUsed = Math.min(totalApprovedLeaveDays, 1);
+            let paidDays = presentDays + holidayCount + weekends + paidLeavesUsed;
+
+            // Cap at available days
+            if (paidDays > availableDays) paidDays = availableDays;
+
+            const lopDays = Math.max(0, availableDays - paidDays);
+
+            // Per Day Salary based on AVAILABLE days
+            const perDaySalary = proratedBaseSalary / availableDays;
             const calculatedLopAmount = Math.round(lopDays * perDaySalary);
+            const netSalary = Math.max(0, proratedBaseSalary - calculatedLopAmount);
 
 
 
@@ -912,7 +917,7 @@ export default function PayrollPage() {
 
             doc.setFontSize(16);
             doc.setTextColor(0, 0, 0);
-            doc.text(formatForPDF(calculateNetSalary(p)), 125, finalY + 15);
+            doc.text(formatForPDF(netSalary), 125, finalY + 15);
 
             // Footer
             doc.setFontSize(8);
